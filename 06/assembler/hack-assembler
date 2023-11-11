@@ -1,0 +1,204 @@
+#!/usr/bin/env python
+
+import sys
+import os
+import pathlib
+
+def _print_usage(program_name):
+    usage = (
+        f"\n{program_name} usage instructions:\n\n"
+        f"  {program_name} (--help | -h)\n"
+        f"     print help text and exit\n\n"
+        f"  {program_name} (--verbose) in.asm\n"
+        f"     assemble in.asm to in.hack\n\n"
+        f"  {program_name} (--verbose) my/path/in.asm\n"
+        f"     assemble my/path/in.asm to my/path/in.hack\n\n"
+        "✌️")
+    print(usage)
+
+def _process_a_instruction(line, line_number, symbol_table):
+    value = line[1:]
+    try:
+        value = int(value)
+    except ValueError:
+        raise ValueError(f'Line {line_number}: A-instruction must contain '
+                         f'integer value but received {value}.')
+
+    if value < 0 or value > 32767:
+        raise ValueError(f'Line {line_number}: Address must be in range '
+                         f'[0, 32767] but received {value}.')
+
+    return f'0{value:015b}'
+
+def _process_l_instruction(line, line_number, symbol_table):
+    return
+
+def _get_dest(dest):
+    if dest is None:
+        return '000'
+
+    known_dests = set(['A', 'D', 'M'])
+    unknown_dests = set(dest) - known_dests
+    if len(unknown_dests) > 0:
+        raise ValueError(
+            f'Unknown destintation(s): {", ".join(unknown_dests)}')
+
+    result = [0, 0, 0]
+    if 'M' in dest:
+        result[2] = 1
+
+    if 'D' in dest:
+        result[1] = 1
+
+    if 'A' in dest:
+        result[0] = 1
+
+    return ''.join(map(str, result))
+
+def _get_jump(jump):
+    lookup = {None : '000',
+              'JGT' : '001',
+              'JEQ' : '010',
+              'JGE' : '011',
+              'JLT' : '100',
+              'JNE' : '101',
+              'JLE' : '110',
+              'JMP' : '111'}
+    try:
+        result = lookup[jump]
+    except KeyError:
+        raise ValueError(f'Unknown jump: {jump}')
+
+    return result
+
+def _get_comp(comp):
+    lookup = {# a == 0
+              '0'   : ('0', '101010'),
+              '1'   : ('0', '111111'),
+              '-1'  : ('0', '111010'),
+              'D'   : ('0', '001100'),
+              'A'   : ('0', '110000'),
+              '!D'  : ('0', '001101'),
+              '!A'  : ('0', '110001'),
+              '-D'  : ('0', '001111'),
+              '-A'  : ('0', '110011'),
+              'D+1' : ('0', '011111'),
+              'A+1' : ('0', '110111'),
+              'D-1' : ('0', '001110'),
+              'A-1' : ('0', '110010'),
+              'D+A' : ('0', '000010'),
+              'D-A' : ('0', '010011'),
+              'A-D' : ('0', '000111'),
+              'D&A' : ('0', '000000'),
+              'D|A' : ('0', '010101'),
+              # a == 1
+              'M'   : ('1', '110000'),
+              '!M'  : ('1', '110001'),
+              '-M'  : ('1', '110011'),
+              'M+1' : ('1', '110111'),
+              'M-1' : ('1', '110010'),
+              'D+M' : ('1', '000010'),
+              'D-M' : ('1', '010011'),
+              'M-D' : ('1', '000111'),
+              'D&M' : ('1', '000000'),
+              'D|M' : ('1', '010101')}
+    try:
+        result = lookup[comp]
+    except KeyError:
+        raise ValueError(f'Unknown comp: {comp}')
+
+    return result
+
+def _get_comp_a1(comp):
+    lookup = {}
+    try:
+        result = lookup[comp]
+    except KeyError:
+        raise ValueError(f'Unknown comp: {comp}')
+
+    return result
+
+def _parse_c_instruction(instruction):
+    try:
+        dest, not_dest = instruction.split('=', maxsplit=1)
+    except ValueError:
+        dest = None
+        not_dest = instruction
+
+    try:
+        comp, jump = not_dest.split(';', maxsplit=1)
+    except ValueError:
+        comp = not_dest
+        jump = None
+
+    return dest, comp, jump
+
+def _process_c_instruction(instruction, line_number, symbol_table):
+    try:
+        dest, comp, jump = _parse_c_instruction(instruction)
+        dest_b = _get_dest(dest)
+        a_b, comp_b = _get_comp(comp)
+        jump_b = _get_jump(jump)
+    except ValueError as e:
+        raise ValueError(f'Line {line_number}: {str(e)}')
+
+    return f'111{a_b}{comp_b}{dest_b}{jump_b}'
+
+
+
+def hack_assembler(input_fp,
+                   output_fp,
+                   verbose=False):
+    """
+    """
+    symbol_table = {}
+    instructions = []
+    with open(input_fp) as inf, \
+         open(output_fp, 'w') as outf:
+        for line_number, line in enumerate(inf, start=1):
+            line = line.strip().replace(" ", "")
+            if len(line) == 0 or line.startswith('//'):
+                continue
+            else:
+                if line.startswith('@'):
+                    machine_instruction = _process_a_instruction(line,
+                                                                 line_number,
+                                                                 symbol_table)
+                    outf.write(f'{machine_instruction}\n')
+                elif line.startswith('('):
+                    _process_l_instruction(line, line_number, symbol_table)
+                else:
+                    machine_instruction = _process_c_instruction(line,
+                                                                 line_number,
+                                                                 symbol_table)
+                    outf.write(f'{machine_instruction}\n')
+
+
+
+
+if __name__ == "__main__":
+    if len(sys.argv) == 1 or '--help' in sys.argv or '-h' in sys.argv:
+        _print_usage(program_name=pathlib.Path(sys.argv[0]).name)
+        exit(0)
+
+    verbose = '--verbose' in sys.argv
+
+    input_fp = pathlib.Path(sys.argv[-1])
+
+    if not input_fp.exists():
+        raise ValueError(f"Input path doesn't exist: {input_fp}")
+
+    if not input_fp.suffix == '.asm':
+        raise ValueError(
+            "Input path must have extension .asm, "
+            f"but found {input_fp.suffix}")
+
+    output_fp = input_fp.with_suffix('.hack')
+
+    if verbose:
+        print(f"Input path: {input_fp}")
+        print(f"Output path: {output_fp}")
+
+    hack_assembler(input_fp, output_fp, verbose=verbose)
+
+
