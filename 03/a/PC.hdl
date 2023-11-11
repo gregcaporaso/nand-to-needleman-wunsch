@@ -1,0 +1,36 @@
+// This file is part of www.nand2tetris.org
+// and the book "The Elements of Computing Systems"
+// by Nisan and Schocken, MIT Press.
+// File name: projects/03/a/PC.hdl
+
+/**
+ * A 16-bit counter with load and reset control bits.
+ * if      (reset[t] == 1) out[t+1] = 0
+ * else if (load[t] == 1)  out[t+1] = in[t]
+ * else if (inc[t] == 1)   out[t+1] = out[t] + 1  (integer addition)
+ * else                    out[t+1] = out[t]
+ */
+
+CHIP PC {
+    IN in[16],load,inc,reset;
+    OUT out[16];
+
+    PARTS:
+    Inc16(in=outT, out=incOut);
+
+    Mux8Way16(a=outT, b=incOut, c=in, d=in, e=false, f=false, g=false, h=false,
+              sel[2]=reset, sel[1]=load, sel[0]=inc,
+              out=regIn);
+
+    Register(in=regIn, load=true, out=outT, out=out);
+
+    // Since there are four output states, I think I should be able to
+    // do this with a four-way, but I haven't figured out the sel logic yet
+    // Xor(a=load, b=reset, out=sel1);
+    // Xor(a=inc, b=reset, out=sel0);
+
+    // Mux4Way16(a=outT, b=incOut, c=in, d=false,
+    //           sel[1]=sel1, sel[0]=sel0,
+    //           out=regIn);
+    //
+}
