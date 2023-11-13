@@ -16,8 +16,68 @@ def _print_usage(program_name):
         "✌️")
     print(usage)
 
+
+def _raise_error(message, line_number):
+    raise ValueError(f'Line {line_number}: {message}')
+
+
+class SymbolTable(object):
+
+    _allowed_symbol_characters = \
+        set('abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ'
+            '0123456789_.$:')
+
+    _lookup = {'R0': '0', 'R1': '1', 'R2': '2', 'R3': '3', 'R4': '4',
+              'R5': '5', 'R6': '6', 'R7': '7', 'R8': '8', 'R9': '9',
+              'R10': '10', 'R11': '11', 'R12': '12', 'R13': '13', 'R14': '14',
+              'R15':    '15',
+              'SP':     '0',
+              'LCL':    '1',
+              'ARG':    '2',
+              'THIS':   '3',
+              'THAT':   '4',
+              'SCREEN': '16384',
+              'KBD':    '24576'}
+    _next_memory_location = 16
+
+    def __getitem__(self, key):
+        return self._lookup[key]
+
+    def add_variable(self, key):
+        self._lookup[key] = self._next_memory_location
+        result = self._next_memory_location
+
+        self._next_memory_location += 1
+
+        return result
+
+    def add_label(self, key, value):
+        self._lookup[key] = value
+
+    def validate_symbol(self, symbol, line_number):
+        if symbol[0].isdigit():
+            _raise_error(
+                f'Symbols cannot start with a digit, but found: {symbol}.',
+                line_number)
+
+        disallowed_characters = set(symbol) - self._allowed_symbol_characters
+        if len(disallowed_characters) > 0:
+            _raise_error(
+                ('Symbols can only contain upper and lower case letters, '
+                 'digits, and the _, :, ., and $ characters, but found: '
+                 f'{symbol}.'), line_number)
+
+
 def _process_a_instruction(line, line_number, symbol_table):
     value = line[1:]
+
+    if not line[1:].isdigit():
+        try:
+            value = symbol_table[value]
+        except KeyError:
+            symbol_table.validate_symbol(value, line_number)
+            value = symbol_table.add_variable(value)
+
     try:
         value = int(value)
     except ValueError:
@@ -29,9 +89,6 @@ def _process_a_instruction(line, line_number, symbol_table):
                          f'[0, 32767] but received {value}.')
 
     return f'0{value:015b}'
-
-def _process_l_instruction(line, line_number, symbol_table):
-    return
 
 def _get_dest(dest):
     if dest is None:
@@ -133,7 +190,7 @@ def _parse_c_instruction(instruction):
 
     return dest, comp, jump
 
-def _process_c_instruction(instruction, line_number, symbol_table):
+def _process_c_instruction(instruction, line_number):
     try:
         dest, comp, jump = _parse_c_instruction(instruction)
         dest_b = _get_dest(dest)
@@ -145,33 +202,47 @@ def _process_c_instruction(instruction, line_number, symbol_table):
     return f'111{a_b}{comp_b}{dest_b}{jump_b}'
 
 
+def _prepare_instructions(inf, symbol_table):
+    instructions = []
+    next_instruction_number = 0
+
+    for line_number, line in enumerate(inf, start=1):
+        line = line.strip().replace(" ", "").split('//')[0]
+        if len(line) == 0 or line.startswith('//'):
+            continue
+        elif line.startswith('(') and line.endswith(')'):
+            label = line[1:-1]
+            symbol_table.validate_symbol(label, line_number)
+            symbol_table.add_label(label, next_instruction_number)
+        else:
+            instructions.append((line_number, line))
+            next_instruction_number += 1
+
+    return instructions, symbol_table
+
 
 def hack_assembler(input_fp,
                    output_fp,
                    verbose=False):
     """
     """
-    symbol_table = {}
+    symbol_table = SymbolTable()
     instructions = []
-    with open(input_fp) as inf, \
-         open(output_fp, 'w') as outf:
-        for line_number, line in enumerate(inf, start=1):
-            line = line.strip().replace(" ", "")
-            if len(line) == 0 or line.startswith('//'):
-                continue
+
+    with open(input_fp) as inf:
+        instructions, symbol_table = _prepare_instructions(inf, symbol_table)
+
+    with open(output_fp, 'w') as outf:
+        for line_number, instruction in instructions:
+            if instruction.startswith('@'):
+                machine_instruction = _process_a_instruction(instruction,
+                                                             line_number,
+                                                             symbol_table)
+                outf.write(f'{machine_instruction}\n')
             else:
-                if line.startswith('@'):
-                    machine_instruction = _process_a_instruction(line,
-                                                                 line_number,
-                                                                 symbol_table)
-                    outf.write(f'{machine_instruction}\n')
-                elif line.startswith('('):
-                    _process_l_instruction(line, line_number, symbol_table)
-                else:
-                    machine_instruction = _process_c_instruction(line,
-                                                                 line_number,
-                                                                 symbol_table)
-                    outf.write(f'{machine_instruction}\n')
+                machine_instruction = _process_c_instruction(instruction,
+                                                             line_number)
+                outf.write(f'{machine_instruction}\n')
 
 
 
