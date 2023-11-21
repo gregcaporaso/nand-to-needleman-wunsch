@@ -3,6 +3,10 @@
 import sys
 import os
 import pathlib
+from enum import Enum
+from collections import namedtuple
+
+
 
 def _print_usage(program_name):
     usage = (
@@ -16,117 +20,170 @@ def _print_usage(program_name):
         "✌️")
     print(usage)
 
-def _raise_error(message, line_number):
-    raise ValueError(f'Line {line_number}: {message}')
+Command = namedtuple('Command', ['type', 'operation', 'args'])
 
-def _write_asm_comment(outf, comment):
-    outf.write(f"// {comment}\n")
+C = Enum('CommandType',
+         ['ARITHMETIC',
+          'PUSH',
+          'POP',
+          'LABEL',
+          'GOTO',
+          'IF',
+          'FUNCTION',
+          'RETURN',
+          'CALL'])
 
-def _write_asm_instruction(outf, instruction):
-    outf.write(f"{instruction}\n")
+class VMParser(object):
 
-def _prepare_instructions(inf):
-    instruction_number = 1
-    for line_number, line in enumerate(inf, start=1):
-        line = line.strip().split('//')[0]
-        if len(line) == 0 or line.startswith('//'):
-            continue
+    _command_map = {'add' : (C.ARITHMETIC, 0),
+                    'sub' : (C.ARITHMETIC, 0),
+                    'and' : (C.ARITHMETIC, 0),
+                    'or'  : (C.ARITHMETIC, 0),
+                    'eq'  : (C.ARITHMETIC, 0),
+                    'gt'  : (C.ARITHMETIC, 0),
+                    'lt'  : (C.ARITHMETIC, 0),
+                    'not' : (C.ARITHMETIC, 0),
+                    'neg' : (C.ARITHMETIC, 0),
+                    'push': (C.PUSH, 2),
+                    'pop' : (C.POP,  2)
+                    }
+
+    def __init__(self, inf):
+        self.inf = inf
+        self.line_number = 0
+
+    def __call__(self):
+        for line in self.inf:
+            self.line_number += 1
+            line = self._clean_line(line)
+            if len(line) == 0 or line.startswith('//'):
+                continue
+            else:
+                command = self._parse_command(line.split())
+                yield command
+
+    def _parse_command(self, fields):
+        try:
+            command_type, expected_n_args = self._command_map[fields[0]]
+        except KeyError:
+            self._raise_error(f"Unknown command type: {fields[0]}")
+
+        if len(fields[1:]) != expected_n_args:
+               self._raise_error(
+                   f"Expected {expected_n_args} arguments for command "
+                   f"{fields[0]}, but received "
+                   f"{len(fields[1:])}: {' '.join(fields)}")
+
+        return Command(type=command_type,
+                       operation=fields[0],
+                       args=fields[1:])
+
+    def _clean_line(self, line):
+        return line.strip().split('//')[0]
+
+    def _raise_error(self,
+                     message):
+        raise ValueError(f'Line {self.line_number}: {message}')
+
+
+class AsmWriter(object):
+
+    def __init__(self, outf):
+        self.outf = outf
+        self.command_number = 0
+
+    def __call__(self, command):
+        self._comment(f"Start {command.type}")
+        self._comment(" ".join([command.operation,
+                                " ".join(command.args)]))
+
+        if command.type == C.PUSH:
+            self._push(command)
+        elif command.type == C.ARITHMETIC:
+            self._arithmetic(command)
         else:
-            instruction = line
-            yield (instruction, line_number, instruction_number)
-            instruction_number += 1
+            raise NotImplementedError(
+                f"Unknown command type: {command.type}")
 
-def _increment_stack_pointer(outf):
-    _write_asm_comment(outf,
-                       "increment stack pointer")
+        self._comment(f"End {command.type}", double_newline=True)
 
-    _write_asm_instruction(outf, "@SP")
-    _write_asm_instruction(outf, "M = M + 1\n")
+    def _push(self, command):
+        if command.args[0] == 'constant':
+            self._command(f"@{command.args[1]}")
+            self._command("D = A")
+            self._command("@SP")
+            self._command("A = M")
+            self._command("M = D")
 
-def _decrement_stack_pointer(outf):
-    _write_asm_comment(outf,
-                       "decrement stack pointer")
+            self._increment_stack_pointer()
+        else:
+            raise NotImplementedError(
+                f"Unknown push command source: {command.args[0]}")
 
-    _write_asm_instruction(outf, "@SP")
-    _write_asm_instruction(outf, "M = M - 1\n")
+    def _arithmetic(self, command):
+        if command.operation == 'add':
+            self._decrement_stack_pointer()
 
+            self._command("@SP")
+            self._command("A = M")
+            self._command("D = M")
 
+            self._decrement_stack_pointer()
 
-def _process_push(outf, source, index, line_number):
-    try:
-        index = int(index)
-    except ValueError:
-        _raise_error(f"Third field must contain an int but contains {index}.",
-                     line_number)
+            self._command("@SP")
+            self._command("A = M")
+            self._command(f"M = M + D")
 
-    if source == 'constant':
-        _write_asm_instruction(outf, f"@{index}")
-        _write_asm_instruction(outf,  "D = A")
-        _write_asm_instruction(outf,  "@SP")
-        _write_asm_instruction(outf,  "A = M")
-        _write_asm_instruction(outf,  "M = D\n")
+            self._increment_stack_pointer()
+        else:
+            raise NotImplementedError(
+                f"Unknown arithmetic command: {command.operation}")
 
-    _increment_stack_pointer(outf)
+    def finalize_program(self):
+        self._comment("End program")
 
-def _process_add(outf, line_number):
-    _write_asm_comment(outf, "start add")
+        self._command("(INFINITE_LOOP)")
+        self._command("@INFINITE_LOOP")
+        self._command("0;JMP")
 
-    _decrement_stack_pointer(outf)
+    def _comment(self, comment, double_newline=False):
+        self.outf.write(f"// {comment}\n")
+        if double_newline:
+            self.outf.write(f"\n")
 
-    _write_asm_instruction(outf, "@SP")
-    _write_asm_instruction(outf, "A = M")
-    _write_asm_instruction(outf, "D = M\n")
+    def _command(self, command):
+        self.outf.write(f"{command}\n")
 
-    _decrement_stack_pointer(outf)
+    def _increment_stack_pointer(self):
+        self._comment("SP++")
+        self._command("@SP")
+        self._command("M = M + 1")
 
-    _write_asm_instruction(outf, "@SP")
-    _write_asm_instruction(outf, "A = M")
-    _write_asm_instruction(outf, "M = M + D")
+    def _decrement_stack_pointer(self):
+        self._comment("SP--")
+        self._command("@SP")
+        self._command("M = M - 1")
 
-    _increment_stack_pointer(outf)
-
-    _write_asm_comment(outf, "end add\n")
-
-def _end_program(outf):
-    _write_asm_comment(outf,
-                       "end program")
-
-    _write_asm_instruction(outf, "(INFINITE_LOOP)")
-    _write_asm_instruction(outf, "@INFINITE_LOOP")
-    _write_asm_instruction(outf, "0;JMP\n")
 
 def vm_translator(input_fp,
                   output_fp,
                   verbose=False):
     """
     """
-
     with open(input_fp) as inf, \
          open(output_fp, 'w') as outf:
 
-        inst_generator = _prepare_instructions(inf)
-        for (instruction, line_number, instruction_number) in inst_generator:
-            fields = instruction.split()
-            print(fields)
-            n_fields = len(fields)
-            if n_fields > 3:
-                _raise_error("More than three fields found on line "
-                             f"{line_number}.")
-            elif n_fields == 3:
-                if fields[0] == 'push':
-                    _process_push(outf, fields[1], fields[2], line_number)
-            elif n_fields == 2:
-                raise NotImplementedError
-            else:
-                if fields[0] == 'add':
-                    _process_add(outf, line_number)
+        vm_parser = VMParser(inf)
+        asm_writer = AsmWriter(outf)
 
-        _end_program(outf)
+        for command in vm_parser():
+            if verbose:
+                print(
+                 f"{command.type}: "
+                 f"{command.operation} {' '.join(command.arguments)}")
+            asm_writer(command)
 
-
-
-
-
+        asm_writer.finalize_program()
 
 
 if __name__ == "__main__":
