@@ -136,6 +136,64 @@ class AsmWriter(object):
             self._command(f"M = M + D")
 
             self._increment_stack_pointer()
+        elif command.operation == 'sub':
+            self._decrement_stack_pointer()
+
+            self._command("@SP")
+            self._command("A = M")
+            self._command("D = M")
+
+            self._decrement_stack_pointer()
+
+            self._command("@SP")
+            self._command("A = M")
+            self._command(f"M = M - D")
+
+            self._increment_stack_pointer()
+        elif command.operation == 'or':
+            self._decrement_stack_pointer()
+
+            self._command("@SP")
+            self._command("A = M")
+            self._command("D = M")
+
+            self._decrement_stack_pointer()
+
+            self._command("@SP")
+            self._command("A = M")
+            self._command(f"M = M | D")
+
+            self._increment_stack_pointer()
+        elif command.operation == 'and':
+            self._decrement_stack_pointer()
+
+            self._command("@SP")
+            self._command("A = M")
+            self._command("D = M")
+
+            self._decrement_stack_pointer()
+
+            self._command("@SP")
+            self._command("A = M")
+            self._command(f"M = M & D")
+
+            self._increment_stack_pointer()
+        elif command.operation == 'neg':
+            self._decrement_stack_pointer()
+
+            self._command("@SP")
+            self._command("A = M")
+            self._command("M = -M")
+
+            self._increment_stack_pointer()
+        elif command.operation == 'not':
+            self._decrement_stack_pointer()
+
+            self._command("@SP")
+            self._command("A = M")
+            self._command("M = !M")
+
+            self._increment_stack_pointer()
         elif command.operation == 'eq':
             self._decrement_stack_pointer()
 
@@ -174,6 +232,84 @@ class AsmWriter(object):
             self._command("0;JMP")
 
             self._command(f"({jmp_label})")
+            self._increment_stack_pointer()
+        elif command.operation == 'lt':
+            self._decrement_stack_pointer()
+
+            self._command("@SP")
+            self._command("A = M")
+            self._command("D = M")
+
+            self._decrement_stack_pointer()
+
+            self._command("@SP")
+            self._command("A = M")
+            self._command("D = M - D")
+
+            label_true = self._next_label()
+            label_false = self._next_label()
+            label_jmp = self._next_label()
+            # D < 0
+            self._command(f"@{label_true}")
+            self._command("D;JLT")
+            # D >= 0
+            self._command(f"@{label_false}")
+            self._command("D;JGE")
+
+            self._command(f"({label_true})")
+            self._command("@SP")
+            self._command("A = M")
+            self._command("M = -1")
+            self._command(f"@{label_jmp}")
+            self._command("0;JMP")
+
+            self._command(f"({label_false})")
+            self._command("@SP")
+            self._command("A = M")
+            self._command("M = 0")
+            self._command(f"@{label_jmp}")
+            self._command("0;JMP")
+
+            self._command(f"({label_jmp})")
+            self._increment_stack_pointer()
+        elif command.operation == 'gt':
+            self._decrement_stack_pointer()
+
+            self._command("@SP")
+            self._command("A = M")
+            self._command("D = M")
+
+            self._decrement_stack_pointer()
+
+            self._command("@SP")
+            self._command("A = M")
+            self._command("D = M - D")
+
+            label_true = self._next_label()
+            label_false = self._next_label()
+            label_jmp = self._next_label()
+            # D > 0
+            self._command(f"@{label_true}")
+            self._command("D;JGT")
+            # D <= 0
+            self._command(f"@{label_false}")
+            self._command("D;JLE")
+
+            self._command(f"({label_true})")
+            self._command("@SP")
+            self._command("A = M")
+            self._command("M = -1")
+            self._command(f"@{label_jmp}")
+            self._command("0;JMP")
+
+            self._command(f"({label_false})")
+            self._command("@SP")
+            self._command("A = M")
+            self._command("M = 0")
+            self._command(f"@{label_jmp}")
+            self._command("0;JMP")
+
+            self._command(f"({label_jmp})")
             self._increment_stack_pointer()
         else:
             raise NotImplementedError(
