@@ -91,6 +91,7 @@ class AsmWriter(object):
     def __init__(self, outf):
         self.outf = outf
         self.command_number = 0
+        self._label_counter = 0
 
     def __call__(self, command):
         self._comment(f"Start {command.type}")
@@ -135,6 +136,45 @@ class AsmWriter(object):
             self._command(f"M = M + D")
 
             self._increment_stack_pointer()
+        elif command.operation == 'eq':
+            self._decrement_stack_pointer()
+
+            self._command("@SP")
+            self._command("A = M")
+            self._command("D = M")
+
+            self._decrement_stack_pointer()
+
+            self._command("@SP")
+            self._command("A = M")
+            self._command("D = M - D")
+
+            jne_label = self._next_label()
+            jeq_label = self._next_label()
+            jmp_label = self._next_label()
+            # if the difference (M) is non-zero
+            self._command(f"@{jne_label}")
+            self._command("D;JNE")
+            # if the difference (M) is zero
+            self._command(f"@{jeq_label}")
+            self._command("D;JEQ")
+
+            self._command(f"({jne_label})")
+            self._command("@SP")
+            self._command("A = M")
+            self._command("M = 0")
+            self._command(f"@{jmp_label}")
+            self._command("0;JMP")
+
+            self._command(f"({jeq_label})")
+            self._command("@SP")
+            self._command("A = M")
+            self._command("M = -1")
+            self._command(f"@{jmp_label}")
+            self._command("0;JMP")
+
+            self._command(f"({jmp_label})")
+            self._increment_stack_pointer()
         else:
             raise NotImplementedError(
                 f"Unknown arithmetic command: {command.operation}")
@@ -142,8 +182,8 @@ class AsmWriter(object):
     def finalize_program(self):
         self._comment("End program")
 
-        self._command("(INFINITE_LOOP)")
-        self._command("@INFINITE_LOOP")
+        self._command("(TERMINAL_LOOP)")
+        self._command("@TERMINAL_LOOP")
         self._command("0;JMP")
 
     def _comment(self, comment, double_newline=False):
@@ -163,6 +203,11 @@ class AsmWriter(object):
         self._comment("SP--")
         self._command("@SP")
         self._command("M = M - 1")
+
+    def _next_label(self):
+        result = f"LABEL.{self._label_counter}"
+        self._label_counter += 1
+        return result
 
 
 def vm_translator(input_fp,
