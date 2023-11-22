@@ -108,220 +108,6 @@ class AsmWriter(object):
 
         self._comment(f"End {command.type}", double_newline=True)
 
-    def _push(self, command):
-        if command.args[0] == 'constant':
-            self._command(f"@{command.args[1]}")
-            self._command("D = A")
-            self._command("@SP")
-            self._command("A = M")
-            self._command("M = D")
-
-            self._increment_stack_pointer()
-        else:
-            raise NotImplementedError(
-                f"Unknown push command source: {command.args[0]}")
-
-    def _arithmetic(self, command):
-        if command.operation == 'add':
-            self._decrement_stack_pointer()
-
-            self._command("@SP")
-            self._command("A = M")
-            self._command("D = M")
-
-            self._decrement_stack_pointer()
-
-            self._command("@SP")
-            self._command("A = M")
-            self._command(f"M = M + D")
-
-            self._increment_stack_pointer()
-        elif command.operation == 'sub':
-            self._decrement_stack_pointer()
-
-            self._command("@SP")
-            self._command("A = M")
-            self._command("D = M")
-
-            self._decrement_stack_pointer()
-
-            self._command("@SP")
-            self._command("A = M")
-            self._command(f"M = M - D")
-
-            self._increment_stack_pointer()
-        elif command.operation == 'or':
-            self._decrement_stack_pointer()
-
-            self._command("@SP")
-            self._command("A = M")
-            self._command("D = M")
-
-            self._decrement_stack_pointer()
-
-            self._command("@SP")
-            self._command("A = M")
-            self._command(f"M = M | D")
-
-            self._increment_stack_pointer()
-        elif command.operation == 'and':
-            self._decrement_stack_pointer()
-
-            self._command("@SP")
-            self._command("A = M")
-            self._command("D = M")
-
-            self._decrement_stack_pointer()
-
-            self._command("@SP")
-            self._command("A = M")
-            self._command(f"M = M & D")
-
-            self._increment_stack_pointer()
-        elif command.operation == 'neg':
-            self._decrement_stack_pointer()
-
-            self._command("@SP")
-            self._command("A = M")
-            self._command("M = -M")
-
-            self._increment_stack_pointer()
-        elif command.operation == 'not':
-            self._decrement_stack_pointer()
-
-            self._command("@SP")
-            self._command("A = M")
-            self._command("M = !M")
-
-            self._increment_stack_pointer()
-        elif command.operation == 'eq':
-            self._decrement_stack_pointer()
-
-            self._command("@SP")
-            self._command("A = M")
-            self._command("D = M")
-
-            self._decrement_stack_pointer()
-
-            self._command("@SP")
-            self._command("A = M")
-            self._command("D = M - D")
-
-            jne_label = self._next_label()
-            jeq_label = self._next_label()
-            jmp_label = self._next_label()
-            # if the difference (M) is non-zero
-            self._command(f"@{jne_label}")
-            self._command("D;JNE")
-            # if the difference (M) is zero
-            self._command(f"@{jeq_label}")
-            self._command("D;JEQ")
-
-            self._command(f"({jne_label})")
-            self._command("@SP")
-            self._command("A = M")
-            self._command("M = 0")
-            self._command(f"@{jmp_label}")
-            self._command("0;JMP")
-
-            self._command(f"({jeq_label})")
-            self._command("@SP")
-            self._command("A = M")
-            self._command("M = -1")
-            self._command(f"@{jmp_label}")
-            self._command("0;JMP")
-
-            self._command(f"({jmp_label})")
-            self._increment_stack_pointer()
-        elif command.operation == 'lt':
-            self._decrement_stack_pointer()
-
-            self._command("@SP")
-            self._command("A = M")
-            self._command("D = M")
-
-            self._decrement_stack_pointer()
-
-            self._command("@SP")
-            self._command("A = M")
-            self._command("D = M - D")
-
-            label_true = self._next_label()
-            label_false = self._next_label()
-            label_jmp = self._next_label()
-            # D < 0
-            self._command(f"@{label_true}")
-            self._command("D;JLT")
-            # D >= 0
-            self._command(f"@{label_false}")
-            self._command("D;JGE")
-
-            self._command(f"({label_true})")
-            self._command("@SP")
-            self._command("A = M")
-            self._command("M = -1")
-            self._command(f"@{label_jmp}")
-            self._command("0;JMP")
-
-            self._command(f"({label_false})")
-            self._command("@SP")
-            self._command("A = M")
-            self._command("M = 0")
-            self._command(f"@{label_jmp}")
-            self._command("0;JMP")
-
-            self._command(f"({label_jmp})")
-            self._increment_stack_pointer()
-        elif command.operation == 'gt':
-            self._decrement_stack_pointer()
-
-            self._command("@SP")
-            self._command("A = M")
-            self._command("D = M")
-
-            self._decrement_stack_pointer()
-
-            self._command("@SP")
-            self._command("A = M")
-            self._command("D = M - D")
-
-            label_true = self._next_label()
-            label_false = self._next_label()
-            label_jmp = self._next_label()
-            # D > 0
-            self._command(f"@{label_true}")
-            self._command("D;JGT")
-            # D <= 0
-            self._command(f"@{label_false}")
-            self._command("D;JLE")
-
-            self._command(f"({label_true})")
-            self._command("@SP")
-            self._command("A = M")
-            self._command("M = -1")
-            self._command(f"@{label_jmp}")
-            self._command("0;JMP")
-
-            self._command(f"({label_false})")
-            self._command("@SP")
-            self._command("A = M")
-            self._command("M = 0")
-            self._command(f"@{label_jmp}")
-            self._command("0;JMP")
-
-            self._command(f"({label_jmp})")
-            self._increment_stack_pointer()
-        else:
-            raise NotImplementedError(
-                f"Unknown arithmetic command: {command.operation}")
-
-    def finalize_program(self):
-        self._comment("End program")
-
-        self._command("(TERMINAL_LOOP)")
-        self._command("@TERMINAL_LOOP")
-        self._command("0;JMP")
-
     def _comment(self, comment, double_newline=False):
         self.outf.write(f"// {comment}\n")
         if double_newline:
@@ -344,6 +130,113 @@ class AsmWriter(object):
         result = f"LABEL.{self._label_counter}"
         self._label_counter += 1
         return result
+
+    def _push(self, command):
+        if command.args[0] == 'constant':
+            self._command(f"@{command.args[1]}")
+            self._command("D = A")
+            self._command("@SP")
+            self._command("A = M")
+            self._command("M = D")
+
+            self._increment_stack_pointer()
+        else:
+            raise NotImplementedError(
+                f"Unknown push command source: {command.args[0]}")
+
+    def _apply_one_operand_operation(self, op):
+        self._decrement_stack_pointer()
+        self._command("@SP")
+        self._command("A = M")
+        self._command(f"M = {op}M")
+        self._increment_stack_pointer()
+
+    def _load_operand_to_D(self):
+        self._decrement_stack_pointer()
+        self._command("@SP")
+        self._command("A = M")
+        self._command("D = M")
+
+    def _apply_two_operand_operation(self, op):
+        self._load_operand_to_D()
+        self._decrement_stack_pointer()
+        self._command("@SP")
+        self._command("A = M")
+        self._command(f"M = M {op} D")
+        self._increment_stack_pointer()
+
+    def _apply_comparison_operation(self,
+                                    jump_true,
+                                    jump_false):
+        self._load_operand_to_D()
+
+        self._decrement_stack_pointer()
+
+        self._command("@SP")
+        self._command("A = M")
+        self._command("D = M - D")
+
+        label_true = self._next_label()
+        label_false = self._next_label()
+        label_jmp = self._next_label()
+
+        self._command(f"@{label_true}")
+        self._command(f"D;{jump_true}")
+
+        self._command(f"@{label_false}")
+        self._command(f"D;{jump_false}")
+
+        self._command(f"({label_true})")
+        self._command("@SP")
+        self._command("A = M")
+        self._command("M = -1")
+        self._command(f"@{label_jmp}")
+        self._command("0;JMP")
+
+        self._command(f"({label_false})")
+        self._command("@SP")
+        self._command("A = M")
+        self._command("M = 0")
+        self._command(f"@{label_jmp}")
+        self._command("0;JMP")
+
+        self._command(f"({label_jmp})")
+        self._increment_stack_pointer()
+
+    def _arithmetic(self, command):
+        if command.operation == 'add':
+            self._apply_two_operand_operation('+')
+        elif command.operation == 'sub':
+            self._apply_two_operand_operation('-')
+        elif command.operation == 'or':
+            self._apply_two_operand_operation('|')
+        elif command.operation == 'and':
+            self._apply_two_operand_operation('&')
+        elif command.operation == 'neg':
+            self._apply_one_operand_operation('-')
+        elif command.operation == 'not':
+            self._apply_one_operand_operation('!')
+        elif command.operation == 'eq':
+            self._apply_comparison_operation(
+                jump_true='JEQ', jump_false='JNE')
+        elif command.operation == 'lt':
+            self._apply_comparison_operation(
+                jump_true='JLT', jump_false='JGE')
+        elif command.operation == 'gt':
+            self._apply_comparison_operation(
+                jump_true='JGT', jump_false='JLE')
+        else:
+            raise NotImplementedError(
+                f"Unknown arithmetic command: {command.operation}")
+
+    def finalize_program(self):
+        self._comment("Terminal infinite loop")
+
+        label = self._next_label()
+
+        self._command(f"({label})")
+        self._command(f"@{label}")
+        self._command("0;JMP")
 
 
 def vm_translator(input_fp,
