@@ -71,7 +71,8 @@ class SymbolTable(object):
 def _process_a_instruction(line, line_number, symbol_table):
     value = line[1:]
 
-    if not line[1:].isdigit():
+    if not line[1:].isdigit() and \
+       not (line[1] == '-' and line[2:].isdigit()):
         try:
             value = symbol_table[value]
         except KeyError:
