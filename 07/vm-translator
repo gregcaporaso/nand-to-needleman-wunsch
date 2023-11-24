@@ -7,7 +7,6 @@ from enum import Enum
 from collections import namedtuple
 
 
-
 def _print_usage(program_name):
     usage = (
         f"\n{program_name} usage instructions:\n\n"
@@ -88,6 +87,15 @@ class VMParser(object):
 
 class AsmWriter(object):
 
+    _segment_map = {'local': 'LCL',
+                    'argument': 'ARG',
+                    'this': 'THIS',
+                    'that': 'THAT',
+                    # confirm that temp should be defined here, not in
+                    # the assembler
+                    'temp': 5
+                    }
+
     def __init__(self, outf):
         self.outf = outf
         self.command_number = 0
@@ -100,6 +108,8 @@ class AsmWriter(object):
 
         if command.type == C.PUSH:
             self._push(command)
+        elif command.type == C.POP:
+            self._pop(command)
         elif command.type == C.ARITHMETIC:
             self._arithmetic(command)
         else:
@@ -132,17 +142,68 @@ class AsmWriter(object):
         return result
 
     def _push(self, command):
-        if command.args[0] == 'constant':
-            self._command(f"@{command.args[1]}")
+        segment, index = command.args
+        if segment == 'constant':
+            self._command(f"@{index}")
             self._command("D = A")
-            self._command("@SP")
-            self._command("A = M")
-            self._command("M = D")
-
-            self._increment_stack_pointer()
+        elif segment == 'temp':
+            segment_ref = self._segment_map[segment]
+            address = segment_ref + int(index)
+            if address < 5 or address > 12:
+                self._raise_error(
+                    f"Address {address} out of temp range 5-12.")
+            self._command(f"@{address}")
+            self._command("D = M")
         else:
-            raise NotImplementedError(
-                f"Unknown push command source: {command.args[0]}")
+            try:
+                segment_ref = self._segment_map[segment]
+            except KeyError:
+                self._raise_error(f"Unknown push command segment: {segment}")
+            self._command(f"@{segment_ref}")
+            self._command("D = M")
+            self._command(f"@{index}")
+            self._command(f"A = D + A")
+            self._command("D = M")
+
+        self._command("@SP")
+        self._command("A = M")
+        self._command("M = D")
+        self._increment_stack_pointer()
+
+    def _pop(self, command):
+        segment, index = command.args
+        try:
+            segment_ref = self._segment_map[segment]
+        except KeyError:
+            self._raise_error(f"Unknown pop command segment: {segment}")
+
+        if segment == 'temp':
+            segment_ref = self._segment_map[segment]
+            address = segment_ref + int(index)
+            if address < 5 or address > 12:
+                self._raise_error(
+                    f"Address {address} out of temp range 5-12.")
+            self._command(f"@{address}")
+            self._command("D = A")
+        else:
+            self._command(f"@{segment_ref}")
+            self._command("D = M")
+            self._command(f"@{index}")
+            self._command(f"D = D + A")
+        # this reference to the R13 virtual register add two additional
+        # memory references on every pop. is that necessary?
+        # it's storing the destination address
+        self._command("@R13")
+        self._command("M = D")
+
+        self._decrement_stack_pointer()
+        self._command("@SP")
+        self._command("A = M")
+        self._command("D = M")
+
+        self._command("@R13")
+        self._command("A = M")
+        self._command("M = D")
 
     def _apply_one_operand_operation(self, op):
         self._decrement_stack_pointer()
