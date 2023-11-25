@@ -97,19 +97,19 @@ class AsmWriter(object):
     _segment_map = {'local': 'LCL',
                     'argument': 'ARG',
                     'this': 'THIS',
-                    'that': 'THAT',
-                    # confirm that temp should be defined here, not in
-                    # the assembler
-                    'temp': 5
+                    'that': 'THAT'
                     }
 
     _pointer_map = {'0': 'THIS',
                     '1': 'THAT'}
 
-    def __init__(self, outf):
+    def __init__(self, outf, static_label):
         self.outf = outf
         self.command_number = 0
         self._label_counter = 0
+        self._static_count = 0
+        self._static_label = static_label
+        self._static_ref = {}
 
     def __call__(self, command):
         self._command = command
@@ -171,6 +171,15 @@ class AsmWriter(object):
                     f"Address {address} out of temp range 5-12.")
             self._write_command(f"@{address}")
             self._write_command("D = M")
+        elif segment == 'static':
+            try:
+                label = self._static_ref[index]
+            except KeyError:
+                label = f"{self._static_label}.{self._static_count}"
+                self._static_ref[index] = label
+                self._static_count += 1
+            self._write_command(f"@{label}")
+            self._write_command("D = M")
         elif segment == 'pointer':
             try:
                 pointer_ref = self._pointer_map[index]
@@ -207,6 +216,15 @@ class AsmWriter(object):
                     f"Address {address} out of temp range 5-12.")
             self._write_command(f"@{address}")
             self._write_command("D = A")
+        elif segment == "static":
+            try:
+                label = self._static_ref[index]
+            except KeyError:
+                label = f"{self._static_label}.{self._static_count}"
+                self._static_ref[index] = label
+                self._static_count += 1
+            self._write_command(f"@{label}")
+            self._write_command("D = A")
         elif segment == 'pointer':
             try:
                 pointer_ref = self._pointer_map[index]
@@ -217,7 +235,6 @@ class AsmWriter(object):
             self._write_command(f"@{pointer_ref}")
             self._write_command("D = A")
         else:
-
             try:
                 segment_ref = self._segment_map[segment]
             except KeyError:
@@ -341,11 +358,13 @@ def vm_translator(input_fp,
                   verbose=False):
     """
     """
+    input_fp = pathlib.Path(input_fp)
+    input_fn = input_fp.stem
     with open(input_fp) as inf, \
          open(output_fp, 'w') as outf:
 
         vm_parser = VMParser(inf)
-        asm_writer = AsmWriter(outf)
+        asm_writer = AsmWriter(outf, static_label=input_fn)
 
         for command in vm_parser():
             if verbose:
