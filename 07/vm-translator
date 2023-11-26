@@ -99,7 +99,7 @@ class AsmWriter(object):
                     'this': 'THIS',
                     'that': 'THAT'
                     }
-
+    _temp_range = (5, 12)
     _pointer_map = {'0': 'THIS',
                     '1': 'THAT'}
 
@@ -158,47 +158,87 @@ class AsmWriter(object):
         self._label_counter += 1
         return result
 
+    def _address_temp(self, index):
+        address = self._temp_range[0] + int(index)
+        if address < self._temp_range[0] or address > self._temp_range[1]:
+            self._raise_error(
+                f"Address {address} out of temp range "
+                f"[{self._temp_range[0]}, {self._temp_range[1]}].")
+        self._write_command(f"@{address}")
+
+    def _push_temp(self, index):
+        self._address_temp(index)
+        self._write_command("D = M")
+
+    def _pop_temp(self, index):
+        self._address_temp(index)
+        self._write_command("D = A")
+
+    def _address_static(self, index):
+        try:
+            label = self._static_ref[index]
+        except KeyError:
+            label = f"{self._static_label}.{self._static_count}"
+            self._static_ref[index] = label
+            self._static_count += 1
+        self._write_command(f"@{label}")
+
+    def _push_static(self, index):
+        self._address_static(index)
+        self._write_command("D = M")
+
+    def _pop_static(self, index):
+        self._address_static(index)
+        self._write_command("D = A")
+
+    def _address_pointer(self, index):
+        try:
+            pointer_ref = self._pointer_map[index]
+        except KeyError:
+            self._raise_error(
+                "Index for pointer segment must be either 0 or 1, "
+                f"but received {index}.")
+        self._write_command(f"@{pointer_ref}")
+
+    def _push_pointer(self, index):
+        self._address_pointer(index)
+        self._write_command("D = M")
+
+    def _pop_pointer(self, index):
+        self._address_pointer(index)
+        self._write_command("D = A")
+
+    def _address_segment(self, segment, index):
+        try:
+            segment_ref = self._segment_map[segment]
+        except KeyError:
+            self._raise_error(f"Unknown pop command segment: {segment}")
+        self._write_command(f"@{segment_ref}")
+        self._write_command("D = M")
+        self._write_command(f"@{index}")
+        self._write_command(f"A = D + A")
+
+    def _push_segment(self, segment, index):
+        self._address_segment(segment, index)
+        self._write_command("D = M")
+
+    def _pop_segment(self, segment, index):
+        self._address_segment(segment, index)
+        self._write_command(f"D = A")
+
     def _push(self, command):
         segment, index = command.args
         if segment == 'constant':
             self._write_command(f"@{index}")
             self._write_command("D = A")
         elif segment == 'temp':
-            segment_ref = self._segment_map[segment]
-            address = segment_ref + int(index)
-            if address < 5 or address > 12:
-                self._raise_error(
-                    f"Address {address} out of temp range 5-12.")
-            self._write_command(f"@{address}")
-            self._write_command("D = M")
+            self._push_temp(index)
         elif segment == 'static':
-            try:
-                label = self._static_ref[index]
-            except KeyError:
-                label = f"{self._static_label}.{self._static_count}"
-                self._static_ref[index] = label
-                self._static_count += 1
-            self._write_command(f"@{label}")
-            self._write_command("D = M")
+            self._push_static(index)
         elif segment == 'pointer':
-            try:
-                pointer_ref = self._pointer_map[index]
-            except KeyError:
-                self._raise_error(
-                    "Index for pointer segment must be either 0 or 1, "
-                    f"but received {index}.")
-            self._write_command(f"@{pointer_ref}")
-            self._write_command("D = M")
+            self._push_pointer(index)
         else:
-            try:
-                segment_ref = self._segment_map[segment]
-            except KeyError:
-                self._raise_error(f"Unknown push command segment: {segment}")
-            self._write_command(f"@{segment_ref}")
-            self._write_command("D = M")
-            self._write_command(f"@{index}")
-            self._write_command(f"A = D + A")
-            self._write_command("D = M")
+            self._push_segment(segment, index)
 
         self._write_command("@SP")
         self._write_command("A = M")
@@ -209,40 +249,14 @@ class AsmWriter(object):
         segment, index = command.args
 
         if segment == 'temp':
-            segment_ref = self._segment_map[segment]
-            address = segment_ref + int(index)
-            if address < 5 or address > 12:
-                self._raise_error(
-                    f"Address {address} out of temp range 5-12.")
-            self._write_command(f"@{address}")
-            self._write_command("D = A")
+            self._pop_temp(index)
         elif segment == "static":
-            try:
-                label = self._static_ref[index]
-            except KeyError:
-                label = f"{self._static_label}.{self._static_count}"
-                self._static_ref[index] = label
-                self._static_count += 1
-            self._write_command(f"@{label}")
-            self._write_command("D = A")
+            self._pop_static(index)
         elif segment == 'pointer':
-            try:
-                pointer_ref = self._pointer_map[index]
-            except KeyError:
-                self._raise_error(
-                    "Index for pointer segment must be either 0 or 1, "
-                    f"but received {index}.")
-            self._write_command(f"@{pointer_ref}")
-            self._write_command("D = A")
+            self._pop_pointer(index)
         else:
-            try:
-                segment_ref = self._segment_map[segment]
-            except KeyError:
-                self._raise_error(f"Unknown pop command segment: {segment}")
-            self._write_command(f"@{segment_ref}")
-            self._write_command("D = M")
-            self._write_command(f"@{index}")
-            self._write_command(f"D = D + A")
+            self._pop_segment(segment, index)
+
         # this reference to the R13 virtual register add two additional
         # memory references on every pop. is that necessary?
         # it's storing the destination address
