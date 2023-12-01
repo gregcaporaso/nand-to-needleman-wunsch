@@ -40,17 +40,22 @@ C = Enum('CommandType',
 
 class VMParser(object):
 
-    _command_map = {'add' : (C.ARITHMETIC, 0),
-                    'sub' : (C.ARITHMETIC, 0),
-                    'and' : (C.ARITHMETIC, 0),
-                    'or'  : (C.ARITHMETIC, 0),
-                    'eq'  : (C.ARITHMETIC, 0),
-                    'gt'  : (C.ARITHMETIC, 0),
-                    'lt'  : (C.ARITHMETIC, 0),
-                    'not' : (C.ARITHMETIC, 0),
-                    'neg' : (C.ARITHMETIC, 0),
-                    'push': (C.PUSH, 2),
-                    'pop' : (C.POP,  2)
+    # mapping of vm commands to their CommandType
+    # and expected number of arguments
+    _command_map = {'add'     : (C.ARITHMETIC, 0),
+                    'sub'     : (C.ARITHMETIC, 0),
+                    'and'     : (C.ARITHMETIC, 0),
+                    'or'      : (C.ARITHMETIC, 0),
+                    'eq'      : (C.ARITHMETIC, 0),
+                    'gt'      : (C.ARITHMETIC, 0),
+                    'lt'      : (C.ARITHMETIC, 0),
+                    'not'     : (C.ARITHMETIC, 0),
+                    'neg'     : (C.ARITHMETIC, 0),
+                    'push'    : (C.PUSH,       2),
+                    'pop'     : (C.POP,        2),
+                    'label'   : (C.LABEL,      1),
+                    'goto'    : (C.GOTO,       1),
+                    'if-goto' : (C.GOTO,       1),
                     }
 
     def __init__(self, inf):
@@ -123,8 +128,12 @@ class AsmWriter(object):
             self._pop(command)
         elif command.type == C.ARITHMETIC:
             self._arithmetic(command)
+        elif command.type == C.LABEL:
+            self._label(command)
+        elif command.type == C.GOTO:
+            self._goto(command)
         else:
-            raise NotImplementedError(
+            self._raise_error(
                 f"Unknown command type: {command.type}")
 
         self._write_comment(f"End {command.type}", double_newline=True)
@@ -167,6 +176,9 @@ class AsmWriter(object):
 
     def _write_command(self, command):
         self.outf.write(f"{command}\n")
+
+    def _write_label(self, label):
+        self.outf.write(f"({self._module_label}.{label})\n")
 
     def _increment_stack_pointer(self):
         self._write_comment("SP++")
@@ -288,14 +300,27 @@ class AsmWriter(object):
         self._write_command("@R13")
         self._write_command("M = D")
 
-        self._decrement_stack_pointer()
-        self._write_command("@SP")
-        self._write_command("A = M")
-        self._write_command("D = M")
+        self._pop_to_D()
 
         self._write_command("@R13")
         self._write_command("A = M")
         self._write_command("M = D")
+
+    def _label(self, command):
+        label = command.args[0]
+        self._validate_label(label)
+        self._write_label(label)
+
+    def _goto(self, command):
+        label = command.args[0]
+        jump_target = f"{self._module_label}.{label}"
+        if command.operation == 'if-goto':
+            self._pop_to_D()
+            self._write_command(f"@{jump_target}")
+            self._write_command('D;JNE')
+        else: # unconditional goto
+            self._write_command(f"@{jump_target}")
+            self._write_command("0;JMP")
 
     def _apply_one_operand_operation(self, op):
         self._decrement_stack_pointer()
@@ -304,14 +329,14 @@ class AsmWriter(object):
         self._write_command(f"M = {op}M")
         self._increment_stack_pointer()
 
-    def _load_operand_to_D(self):
+    def _pop_to_D(self):
         self._decrement_stack_pointer()
         self._write_command("@SP")
         self._write_command("A = M")
         self._write_command("D = M")
 
     def _apply_two_operand_operation(self, op):
-        self._load_operand_to_D()
+        self._pop_to_D()
         self._decrement_stack_pointer()
         self._write_command("@SP")
         self._write_command("A = M")
@@ -321,7 +346,7 @@ class AsmWriter(object):
     def _apply_comparison_operation(self,
                                     jump_true,
                                     jump_false):
-        self._load_operand_to_D()
+        self._pop_to_D()
 
         self._decrement_stack_pointer()
 
@@ -329,6 +354,7 @@ class AsmWriter(object):
         self._write_command("A = M")
         self._write_command("D = M - D")
 
+        # TODO: update label handling to use C.LABEL functionality
         label_true = self._next_label()
         label_false = self._next_label()
         label_jmp = self._next_label()
