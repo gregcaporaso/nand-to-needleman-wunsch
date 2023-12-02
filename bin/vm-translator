@@ -56,6 +56,9 @@ class VMParser(object):
                     'label'   : (C.LABEL,      1),
                     'goto'    : (C.GOTO,       1),
                     'if-goto' : (C.GOTO,       1),
+                    'function': (C.FUNCTION,   2),
+                    'call'    : (C.CALL,       2),
+                    'return'  : (C.RETURN,     0),
                     }
 
     def __init__(self, inf):
@@ -109,6 +112,10 @@ class AsmWriter(object):
     _pointer_map = {'0': 'THIS',
                     '1': 'THAT'}
 
+    _pop_virtual_register = "R13"
+    _return_frame_virtual_register = "R14"
+    _return_ret_address_virtual_register = "R15"
+
     def __init__(self, outf):
         self.outf = outf
         self.command_number = 0
@@ -132,6 +139,12 @@ class AsmWriter(object):
             self._label(command)
         elif command.type == C.GOTO:
             self._goto(command)
+        elif command.type == C.FUNCTION:
+            self._function(command)
+        elif command.type == C.RETURN:
+            self._return(command)
+        elif command.type == C.CALL:
+            self._call(command)
         else:
             self._raise_error(
                 f"Unknown command type: {command.type}")
@@ -175,7 +188,7 @@ class AsmWriter(object):
             self.outf.write(f"\n")
 
     def _write_command(self, command):
-        self.outf.write(f"{command}\n")
+        self.outf.write(f" {command}\n")
 
     def _write_label(self, label):
         self.outf.write(f"({self._module_label}.{label})\n")
@@ -294,15 +307,15 @@ class AsmWriter(object):
         else:
             self._pop_segment(segment, index)
 
-        # this reference to the R13 virtual register add two additional
+        # this reference to a virtual register add two additional
         # memory references on every pop. is that necessary?
         # it's storing the destination address
-        self._write_command("@R13")
+        self._write_command(f"@{self._pop_virtual_register}")
         self._write_command("M = D")
 
-        self._pop_to_D()
+        self._write_pop_to_D()
 
-        self._write_command("@R13")
+        self._write_command(f"@{self._pop_virtual_register}")
         self._write_command("A = M")
         self._write_command("M = D")
 
@@ -311,11 +324,78 @@ class AsmWriter(object):
         self._validate_label(label)
         self._write_label(label)
 
+    def _write_pop_to_D(self):
+        self._decrement_stack_pointer()
+        self._write_command("@SP")
+        self._write_command("A = M")
+        self._write_command("D = M")
+
+    def _write_push_value(self, value):
+        self._write_command(f"@{value}")
+        self._write_command("D = A")
+        self._write_command("@SP")
+        self._write_command("A = M")
+        self._write_command("M = D")
+        self._increment_stack_pointer()
+
+    def _function(self, command):
+        function_name, n_vars = command.args
+        n_vars = int(n_vars)
+        self._validate_label(function_name)
+        self._write_label(function_name)
+
+        for i in range(n_vars):
+            self._write_push_value(0)
+
+    def _call(self, command):
+        pass
+
+    def _return(self, command):
+        # save LCL to virtual register
+        self._write_command("@LCL")
+        self._write_command("D = M")
+        self._write_command(f"@{self._return_frame_virtual_register}")
+        self._write_command("M = D")
+
+        # write the return address to its virtual register
+        self._write_command("@5")
+        self._write_command("A = D - A")
+        self._write_command("D = M")
+        self._write_command(f"@{self._return_ret_address_virtual_register}")
+        self._write_command("M = D")
+
+        # move the return value to the beginning of the ARG segment
+        self._write_pop_to_D()
+        self._write_command("@ARG")
+        self._write_command("A = M")
+        self._write_command("M = D")
+
+        # reset the stack pointer to just after the return value
+        self._write_command("D = A")
+        self._write_command("@SP")
+        self._write_command("M = D + 1")
+
+        # reset THAT (eg) pointer for caller
+        for e in ['THAT', 'THIS', 'ARG', 'LCL']:
+            # decrement frame to location containing orig THAT address
+            self._write_command(f"@{self._return_frame_virtual_register}")
+            self._write_command("M = M - 1")
+            # put original THAT address in D
+            self._write_command("A = M")
+            self._write_command("D = M")
+            # put D in @THAT
+            self._write_command(f"@{e}")
+            self._write_command("M = D")
+
+        self._write_command(f"@{self._return_ret_address_virtual_register}")
+        self._write_command("A = M")
+        self._write_command("0;JMP")
+
     def _goto(self, command):
         label = command.args[0]
         jump_target = f"{self._module_label}.{label}"
         if command.operation == 'if-goto':
-            self._pop_to_D()
+            self._write_pop_to_D()
             self._write_command(f"@{jump_target}")
             self._write_command('D;JNE')
         else: # unconditional goto
@@ -329,14 +409,8 @@ class AsmWriter(object):
         self._write_command(f"M = {op}M")
         self._increment_stack_pointer()
 
-    def _pop_to_D(self):
-        self._decrement_stack_pointer()
-        self._write_command("@SP")
-        self._write_command("A = M")
-        self._write_command("D = M")
-
     def _apply_two_operand_operation(self, op):
-        self._pop_to_D()
+        self._write_pop_to_D()
         self._decrement_stack_pointer()
         self._write_command("@SP")
         self._write_command("A = M")
@@ -346,7 +420,7 @@ class AsmWriter(object):
     def _apply_comparison_operation(self,
                                     jump_true,
                                     jump_false):
-        self._pop_to_D()
+        self._write_pop_to_D()
 
         self._decrement_stack_pointer()
 
