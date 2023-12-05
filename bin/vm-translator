@@ -114,7 +114,12 @@ class AsmWriter(object):
 
     _pop_virtual_register = "R13"
     _return_frame_virtual_register = "R14"
-    _return_ret_address_virtual_register = "R15"
+    _return_address_virtual_register = "R15"
+    _labels = set()
+    # the following set is also defined in hack-assembler
+    _allowed_label_characters = \
+        set('abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ'
+            '0123456789_.$:')
 
     def __init__(self, outf):
         self.outf = outf
@@ -123,28 +128,31 @@ class AsmWriter(object):
         self._static_count = 0
         self._static_ref = {}
         self._module_label = 'null'
+        self._current_function_label = 'null'
+        self._terminal_loop_label = \
+            self._create_label("TERMINAL.LOOP")
 
     def __call__(self, command):
         self._command = command
-        self._write_comment(f"Start {command.type}")
-        self._write_comment(command.text)
+        self._write_comment(f"Start {self._command.type}")
+        self._write_comment(self._command.text)
 
         if command.type == C.PUSH:
-            self._push(command)
+            self._push()
         elif command.type == C.POP:
-            self._pop(command)
+            self._pop()
         elif command.type == C.ARITHMETIC:
-            self._arithmetic(command)
+            self._arithmetic()
         elif command.type == C.LABEL:
-            self._label(command)
+            self._label()
         elif command.type == C.GOTO:
-            self._goto(command)
+            self._goto()
         elif command.type == C.FUNCTION:
-            self._function(command)
+            self._function()
         elif command.type == C.RETURN:
-            self._return(command)
+            self._return()
         elif command.type == C.CALL:
-            self._call(command)
+            self._call()
         else:
             self._raise_error(
                 f"Unknown command type: {command.type}")
@@ -152,10 +160,21 @@ class AsmWriter(object):
         self._write_comment(f"End {command.type}", double_newline=True)
 
     def initiate_program(self):
-        pass
+        self._write_comment(f"Initialize program")
+        # set the stack pointer to memory location 256
+        self._write_asm_command("@256")
+        self._write_asm_command("D = A")
+        self._write_asm_command("@SP")
+        self._write_asm_command("M = D")
+
+        # call Sys.init function
+        self._call(args=("Sys.init", 0))
+        self._write_asm_command(f"@{self._terminal_loop_label}")
+        self._write_asm_command("0;JMP")
+        self._write_comment(f"End program initialization",
+                            double_newline=True)
 
     def initiate_module(self, module_label):
-        self._validate_label(module_label)
         self._module_label = module_label
         self._write_comment(f"Begin module: {self._module_label}")
 
@@ -165,15 +184,9 @@ class AsmWriter(object):
 
     def finalize_program(self):
         self._write_comment("Terminal infinite loop")
-
-        label = self._next_label()
-
-        self._write_command(f"({label})")
-        self._write_command(f"@{label}")
-        self._write_command("0;JMP")
-
-    def _validate_label(self, value):
-        print("Warning: no label validation has been implemented yet.")
+        self._write_label(self._terminal_loop_label)
+        self._write_asm_command(f"@{self._terminal_loop_label}")
+        self._write_asm_command("0;JMP")
 
     def _raise_error(self,
                      message):
@@ -187,26 +200,60 @@ class AsmWriter(object):
         if double_newline:
             self.outf.write(f"\n")
 
-    def _write_command(self, command):
-        self.outf.write(f" {command}\n")
+    def _write_asm_command(self, asm_command):
+        self.outf.write(f" {asm_command}\n")
+
+    # start label handling
+
+    def _label(self, label=None):
+        """ Process CommandType.LABEL """
+        if label is None:
+            label = self._command.args[0]
+        label = self._create_function_prefixed_label(label)
+        self._write_label(label)
+
+    def _validate_label(self, label):
+        # check for disallowed characters
+        bad_chars = set(label) - self._allowed_label_characters
+        if len(bad_chars) > 0:
+            self._raise_error(
+                f"Disallowed characters ({bad_chars}) found in label {label}.")
+
+    def _create_return_label(self):
+        label = f"{self._current_function_label}$ret.{self._label_counter}"
+        self._label_counter += 1
+        return self._create_label(label)
+
+    def _create_function_prefixed_label(self, label, include_count=False):
+        label = f"{self._current_function_label}${label}"
+        if include_count:
+            label = f"{label}.{self._label_counter}"
+            self._label_counter += 1
+        return self._create_label(label)
+
+    def _create_label(self, label):
+        self._validate_label(label)
+        return label
 
     def _write_label(self, label):
-        self.outf.write(f"({self._module_label}.{label})\n")
+        # check for duplicates
+        if label in self._labels:
+            self._raise_error(
+                f"Duplicate label detected: {label}.")
+        self._labels.add(label)
+        self.outf.write(f"({label})\n")
+
+    # end label handling
 
     def _increment_stack_pointer(self):
         self._write_comment("SP++")
-        self._write_command("@SP")
-        self._write_command("M = M + 1")
+        self._write_asm_command("@SP")
+        self._write_asm_command("M = M + 1")
 
     def _decrement_stack_pointer(self):
         self._write_comment("SP--")
-        self._write_command("@SP")
-        self._write_command("M = M - 1")
-
-    def _next_label(self):
-        result = f"LABEL.{self._label_counter}"
-        self._label_counter += 1
-        return result
+        self._write_asm_command("@SP")
+        self._write_asm_command("M = M - 1")
 
     def _address_temp(self, index):
         address = self._temp_range[0] + int(index)
@@ -214,15 +261,15 @@ class AsmWriter(object):
             self._raise_error(
                 f"Address {address} out of temp range "
                 f"[{self._temp_range[0]}, {self._temp_range[1]}].")
-        self._write_command(f"@{address}")
+        self._write_asm_command(f"@{address}")
 
     def _push_temp(self, index):
         self._address_temp(index)
-        self._write_command("D = M")
+        self._write_asm_command("D = M")
 
     def _pop_temp(self, index):
         self._address_temp(index)
-        self._write_command("D = A")
+        self._write_asm_command("D = A")
 
     def _address_static(self, index):
         try:
@@ -231,15 +278,15 @@ class AsmWriter(object):
             label = f"{self._module_label}.{self._static_count}"
             self._static_ref[index] = label
             self._static_count += 1
-        self._write_command(f"@{label}")
+        self._write_asm_command(f"@{label}")
 
     def _push_static(self, index):
         self._address_static(index)
-        self._write_command("D = M")
+        self._write_asm_command("D = M")
 
     def _pop_static(self, index):
         self._address_static(index)
-        self._write_command("D = A")
+        self._write_asm_command("D = A")
 
     def _address_pointer(self, index):
         try:
@@ -248,39 +295,43 @@ class AsmWriter(object):
             self._raise_error(
                 "Index for pointer segment must be either 0 or 1, "
                 f"but received {index}.")
-        self._write_command(f"@{pointer_ref}")
+        self._write_asm_command(f"@{pointer_ref}")
 
     def _push_pointer(self, index):
         self._address_pointer(index)
-        self._write_command("D = M")
+        self._write_asm_command("D = M")
 
     def _pop_pointer(self, index):
         self._address_pointer(index)
-        self._write_command("D = A")
+        self._write_asm_command("D = A")
 
     def _address_segment(self, segment, index):
         try:
             segment_ref = self._segment_map[segment]
         except KeyError:
             self._raise_error(f"Unknown pop command segment: {segment}")
-        self._write_command(f"@{segment_ref}")
-        self._write_command("D = M")
-        self._write_command(f"@{index}")
-        self._write_command(f"A = D + A")
+        self._write_asm_command(f"@{segment_ref}")
+        self._write_asm_command("D = M")
+        self._write_asm_command(f"@{index}")
+        self._write_asm_command(f"A = D + A")
 
     def _push_segment(self, segment, index):
         self._address_segment(segment, index)
-        self._write_command("D = M")
+        self._write_asm_command("D = M")
 
     def _pop_segment(self, segment, index):
         self._address_segment(segment, index)
-        self._write_command(f"D = A")
+        self._write_asm_command(f"D = A")
 
-    def _push(self, command):
-        segment, index = command.args
+    def _push(self, args=None):
+        if args is None:
+            segment, index = self._command.args
+        else:
+            segment, index = args
+
         if segment == 'constant':
-            self._write_command(f"@{index}")
-            self._write_command("D = A")
+            self._write_asm_command(f"@{index}")
+            self._write_asm_command("D = A")
         elif segment == 'temp':
             self._push_temp(index)
         elif segment == 'static':
@@ -290,13 +341,16 @@ class AsmWriter(object):
         else:
             self._push_segment(segment, index)
 
-        self._write_command("@SP")
-        self._write_command("A = M")
-        self._write_command("M = D")
+        self._write_asm_command("@SP")
+        self._write_asm_command("A = M")
+        self._write_asm_command("M = D")
         self._increment_stack_pointer()
 
-    def _pop(self, command):
-        segment, index = command.args
+    def _pop(self, args=None):
+        if args is None:
+            segment, index = self._command.args
+        else:
+            segment, index = args
 
         if segment == 'temp':
             self._pop_temp(index)
@@ -310,111 +364,153 @@ class AsmWriter(object):
         # this reference to a virtual register add two additional
         # memory references on every pop. is that necessary?
         # it's storing the destination address
-        self._write_command(f"@{self._pop_virtual_register}")
-        self._write_command("M = D")
+        self._write_asm_command(f"@{self._pop_virtual_register}")
+        self._write_asm_command("M = D")
 
         self._write_pop_to_D()
 
-        self._write_command(f"@{self._pop_virtual_register}")
-        self._write_command("A = M")
-        self._write_command("M = D")
-
-    def _label(self, command):
-        label = command.args[0]
-        self._validate_label(label)
-        self._write_label(label)
+        self._write_asm_command(f"@{self._pop_virtual_register}")
+        self._write_asm_command("A = M")
+        self._write_asm_command("M = D")
 
     def _write_pop_to_D(self):
         self._decrement_stack_pointer()
-        self._write_command("@SP")
-        self._write_command("A = M")
-        self._write_command("D = M")
+        self._write_asm_command("@SP")
+        self._write_asm_command("A = M")
+        self._write_asm_command("D = M")
 
-    def _write_push_value(self, value):
-        self._write_command(f"@{value}")
-        self._write_command("D = A")
-        self._write_command("@SP")
-        self._write_command("A = M")
-        self._write_command("M = D")
+    def _write_push(self, value, dereference=False):
+        self._write_asm_command(f"@{value}")
+        if dereference:
+            self._write_asm_command("D = M")
+        else:
+            self._write_asm_command("D = A")
+        self._write_asm_command("@SP")
+        self._write_asm_command("A = M")
+        self._write_asm_command("M = D")
         self._increment_stack_pointer()
 
-    def _function(self, command):
-        function_name, n_vars = command.args
+    def _write_push_value(self, value):
+        self._write_push(value, dereference=False)
+
+    def _write_push_pointer(self, pointer_address):
+        self._write_push(pointer_address, dereference=True)
+
+    def _function(self, args=None):
+        if args is None:
+            function_name, n_vars = self._command.args
+        else:
+            function_name, n_vars = args
         n_vars = int(n_vars)
-        self._validate_label(function_name)
-        self._write_label(function_name)
+        function_label = self._create_label(function_name)
+        self._current_function_label = function_label
+        self._write_label(function_label)
 
         for i in range(n_vars):
             self._write_push_value(0)
 
-    def _call(self, command):
-        pass
+    def _call(self, args=None):
+        if args is None:
+            function_name, n_args = self._command.args
+        else:
+            function_name, n_args = args
 
-    def _return(self, command):
+        # create return label and push it on the stack
+        return_label = self._create_return_label()
+        self._write_push_value(return_label)
+
+        self._write_push_pointer("LCL")
+        self._write_push_pointer("ARG")
+        self._write_push_pointer("THIS")
+        self._write_push_pointer("THAT")
+
+        self._write_asm_command("@SP")
+        self._write_asm_command("D = M")
+        self._write_asm_command("@5")
+        self._write_asm_command("D = D - A")
+        self._write_asm_command(f"@{n_args}")
+        self._write_asm_command("D = D - A")
+        self._write_asm_command("@ARG")
+        self._write_asm_command("M = D")
+
+        self._write_asm_command("@SP")
+        self._write_asm_command("D = M")
+        self._write_asm_command("@LCL")
+        self._write_asm_command("M = D")
+
+        self._write_comment(f"Jump to {function_name}")
+        self._write_asm_command(f"@{function_name}")
+        self._write_asm_command("0;JMP")
+
+        self._write_label(return_label)
+
+    def _return(self):
         # save LCL to virtual register
-        self._write_command("@LCL")
-        self._write_command("D = M")
-        self._write_command(f"@{self._return_frame_virtual_register}")
-        self._write_command("M = D")
+        self._write_asm_command("@LCL")
+        self._write_asm_command("D = M")
+        self._write_asm_command(f"@{self._return_frame_virtual_register}")
+        self._write_asm_command("M = D")
 
         # write the return address to its virtual register
-        self._write_command("@5")
-        self._write_command("A = D - A")
-        self._write_command("D = M")
-        self._write_command(f"@{self._return_ret_address_virtual_register}")
-        self._write_command("M = D")
+        self._write_asm_command("@5")
+        self._write_asm_command("A = D - A")
+        self._write_asm_command("D = M")
+        self._write_asm_command(f"@{self._return_address_virtual_register}")
+        self._write_asm_command("M = D")
 
         # move the return value to the beginning of the ARG segment
         self._write_pop_to_D()
-        self._write_command("@ARG")
-        self._write_command("A = M")
-        self._write_command("M = D")
+        self._write_asm_command("@ARG")
+        self._write_asm_command("A = M")
+        self._write_asm_command("M = D")
 
         # reset the stack pointer to just after the return value
-        self._write_command("D = A")
-        self._write_command("@SP")
-        self._write_command("M = D + 1")
+        self._write_asm_command("D = A")
+        self._write_asm_command("@SP")
+        self._write_asm_command("M = D + 1")
 
         # reset THAT (eg) pointer for caller
         for e in ['THAT', 'THIS', 'ARG', 'LCL']:
             # decrement frame to location containing orig THAT address
-            self._write_command(f"@{self._return_frame_virtual_register}")
-            self._write_command("M = M - 1")
+            self._write_asm_command(f"@{self._return_frame_virtual_register}")
+            self._write_asm_command("M = M - 1")
             # put original THAT address in D
-            self._write_command("A = M")
-            self._write_command("D = M")
+            self._write_asm_command("A = M")
+            self._write_asm_command("D = M")
             # put D in @THAT
-            self._write_command(f"@{e}")
-            self._write_command("M = D")
+            self._write_asm_command(f"@{e}")
+            self._write_asm_command("M = D")
 
-        self._write_command(f"@{self._return_ret_address_virtual_register}")
-        self._write_command("A = M")
-        self._write_command("0;JMP")
+        self._write_asm_command(f"@{self._return_address_virtual_register}")
+        self._write_asm_command("A = M")
+        self._write_asm_command("0;JMP")
 
-    def _goto(self, command):
-        label = command.args[0]
-        jump_target = f"{self._module_label}.{label}"
-        if command.operation == 'if-goto':
+    def _goto(self, label=None):
+        if label is None:
+            label = self._command.args[0]
+
+        jump_target = self._create_function_prefixed_label(label)
+        if self._command.operation == 'if-goto':
             self._write_pop_to_D()
-            self._write_command(f"@{jump_target}")
-            self._write_command('D;JNE')
+            self._write_asm_command(f"@{jump_target}")
+            self._write_asm_command('D;JNE')
         else: # unconditional goto
-            self._write_command(f"@{jump_target}")
-            self._write_command("0;JMP")
+            self._write_asm_command(f"@{jump_target}")
+            self._write_asm_command("0;JMP")
 
     def _apply_one_operand_operation(self, op):
         self._decrement_stack_pointer()
-        self._write_command("@SP")
-        self._write_command("A = M")
-        self._write_command(f"M = {op}M")
+        self._write_asm_command("@SP")
+        self._write_asm_command("A = M")
+        self._write_asm_command(f"M = {op}M")
         self._increment_stack_pointer()
 
     def _apply_two_operand_operation(self, op):
         self._write_pop_to_D()
         self._decrement_stack_pointer()
-        self._write_command("@SP")
-        self._write_command("A = M")
-        self._write_command(f"M = M {op} D")
+        self._write_asm_command("@SP")
+        self._write_asm_command("A = M")
+        self._write_asm_command(f"M = M {op} D")
         self._increment_stack_pointer()
 
     def _apply_comparison_operation(self,
@@ -424,64 +520,70 @@ class AsmWriter(object):
 
         self._decrement_stack_pointer()
 
-        self._write_command("@SP")
-        self._write_command("A = M")
-        self._write_command("D = M - D")
+        self._write_asm_command("@SP")
+        self._write_asm_command("A = M")
+        self._write_asm_command("D = M - D")
 
-        # TODO: update label handling to use C.LABEL functionality
-        label_true = self._next_label()
-        label_false = self._next_label()
-        label_jmp = self._next_label()
+        # include a label count in these as they will be written
+        # for every comparison operator, so can be duplicated within
+        # a function
+        label_true = self._create_function_prefixed_label(
+            "CONDITIONAL.TRUE", include_count=True)
+        label_false = self._create_function_prefixed_label(
+            "CONDITIONAL.FALSE", include_count=True)
+        label_jmp = self._create_function_prefixed_label(
+            "END.CONDITIONAL", include_count=True)
 
-        self._write_command(f"@{label_true}")
-        self._write_command(f"D;{jump_true}")
+        self._write_asm_command(f"@{label_true}")
+        self._write_asm_command(f"D;{jump_true}")
 
-        self._write_command(f"@{label_false}")
-        self._write_command(f"D;{jump_false}")
+        self._write_asm_command(f"@{label_false}")
+        self._write_asm_command(f"D;{jump_false}")
 
-        self._write_command(f"({label_true})")
-        self._write_command("@SP")
-        self._write_command("A = M")
-        self._write_command("M = -1")
-        self._write_command(f"@{label_jmp}")
-        self._write_command("0;JMP")
+        self._write_label(label_true)
+        self._write_asm_command("@SP")
+        self._write_asm_command("A = M")
+        self._write_asm_command("M = -1")
+        self._write_asm_command(f"@{label_jmp}")
+        self._write_asm_command("0;JMP")
 
-        self._write_command(f"({label_false})")
-        self._write_command("@SP")
-        self._write_command("A = M")
-        self._write_command("M = 0")
-        self._write_command(f"@{label_jmp}")
-        self._write_command("0;JMP")
+        self._write_label(label_false)
+        self._write_asm_command("@SP")
+        self._write_asm_command("A = M")
+        self._write_asm_command("M = 0")
+        self._write_asm_command(f"@{label_jmp}")
+        self._write_asm_command("0;JMP")
 
-        self._write_command(f"({label_jmp})")
+        self._write_label(label_jmp)
         self._increment_stack_pointer()
 
-    def _arithmetic(self, command):
-        if command.operation == 'add':
+    def _arithmetic(self, operation=None):
+        if operation is None:
+            operation = self._command.operation
+        if operation == 'add':
             self._apply_two_operand_operation('+')
-        elif command.operation == 'sub':
+        elif operation == 'sub':
             self._apply_two_operand_operation('-')
-        elif command.operation == 'or':
+        elif operation == 'or':
             self._apply_two_operand_operation('|')
-        elif command.operation == 'and':
+        elif operation == 'and':
             self._apply_two_operand_operation('&')
-        elif command.operation == 'neg':
+        elif operation == 'neg':
             self._apply_one_operand_operation('-')
-        elif command.operation == 'not':
+        elif operation == 'not':
             self._apply_one_operand_operation('!')
-        elif command.operation == 'eq':
+        elif operation == 'eq':
             self._apply_comparison_operation(
                 jump_true='JEQ', jump_false='JNE')
-        elif command.operation == 'lt':
+        elif operation == 'lt':
             self._apply_comparison_operation(
                 jump_true='JLT', jump_false='JGE')
-        elif command.operation == 'gt':
+        elif operation == 'gt':
             self._apply_comparison_operation(
                 jump_true='JGT', jump_false='JLE')
         else:
             raise NotImplementedError(
-                f"Unknown arithmetic command: {command.operation}")
-
+                f"Unknown arithmetic command: {operation}")
 
 
 class VMTranslator(object):
@@ -489,12 +591,13 @@ class VMTranslator(object):
     def __init__(self, verbose=False):
         self._verbose = verbose
 
-    def __call__(self, input_path):
+    def __call__(self, input_path, write_program_init=True):
         input_fps, output_fp = self._process_input_path(input_path)
 
         with open(output_fp, 'w') as outf:
             asm_writer = AsmWriter(outf)
-            asm_writer.initiate_program()
+            if write_program_init:
+                asm_writer.initiate_program()
 
             for module_label, input_fp in input_fps:
                 asm_writer.initiate_module(module_label)
@@ -522,22 +625,24 @@ class VMTranslator(object):
         if input_path.is_dir():
             input_fps = [pathlib.Path(fp)
                          for fp in glob.glob(str(input_path / '*.vm'))]
+            infs = [(input_fp.name, input_fp) for input_fp in input_fps]
             if len(input_fps) == 0:
                 raise ValueError(f"No input .vm files found in {input_path}.")
+            fn_stem = input_path.parts[-1]
+            output_fp = input_path / pathlib.Path(f"{fn_stem}.asm")
         else:
             if not input_path.suffix == '.vm':
                 raise ValueError(
                     "Input path must have extension .vm, "
                     f"but found {input_path.suffix}")
-            input_fps = [input_path]
-
-        infs = [(fp.stem, fp) for fp in input_fps]
-        output_fp = input_path.with_suffix('.asm')
+            fn_stem = input_path.stem
+            output_fp = input_path.parent / pathlib.Path(f"{fn_stem}.asm")
+            infs = [(fn_stem, input_path)]
 
         if self._verbose:
             print('Input vm files:')
-            for input_fp in input_fps:
-                print(f' {input_fp}')
+            for inf in infs:
+                print(f' {inf[1]}')
             print('Output asm file:')
             print(f' {output_fp}', end='\n\n')
 
@@ -550,7 +655,8 @@ if __name__ == "__main__":
         exit(0)
 
     verbose = '--verbose' in sys.argv
+    write_program_init = '--suppress-program-init' not in sys.argv
     input_path = sys.argv[-1]
 
     vm_translator = VMTranslator(verbose=verbose)
-    vm_translator(input_path)
+    vm_translator(input_path, write_program_init=write_program_init)
