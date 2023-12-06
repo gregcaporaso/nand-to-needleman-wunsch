@@ -123,11 +123,8 @@ class AsmWriter(object):
             '0123456789_.$:')
 
     def __init__(self, outf):
-        self.outf = outf
-        self.command_number = 0
+        self._outf = outf
         self._label_counter = 0
-        self._static_count = 0
-        self._static_ref = {}
         self._module_label = 'null'
         self._current_function_label = 'null'
         self._terminal_loop_label = \
@@ -162,7 +159,7 @@ class AsmWriter(object):
 
     def initialize_program(self):
         self._write_comment("Initialize program")
-        # set the stack pointer to memory location 256
+        # initialize the stack pointer to memory location 256
         self._write_asm_command("@256")
         self._write_asm_command("D = A")
         self._write_asm_command("@SP")
@@ -547,12 +544,12 @@ class AsmWriter(object):
     # start general purpose helpers
 
     def _write_asm_command(self, asm_command):
-        self.outf.write(f" {asm_command}\n")
+        self._outf.write(f" {asm_command}\n")
 
     def _write_comment(self, comment, double_newline=False):
-        self.outf.write(f"// {comment}\n")
+        self._outf.write(f"// {comment}\n")
         if double_newline:
-            self.outf.write("\n")
+            self._outf.write("\n")
 
     def _write_label(self, label):
         # check for duplicates
@@ -560,7 +557,7 @@ class AsmWriter(object):
             self._raise_error(
                 f"Duplicate label detected: {label}.")
         self._labels.add(label)
-        self.outf.write(f"({label})\n")
+        self._outf.write(f"({label})\n")
 
     def _raise_error(self,
                      message):
@@ -604,12 +601,7 @@ class AsmWriter(object):
         self._write_asm_command(f"@{address}")
 
     def _address_static(self, index):
-        try:
-            label = self._static_ref[index]
-        except KeyError:
-            label = f"{self._module_label}.{self._static_count}"
-            self._static_ref[index] = label
-            self._static_count += 1
+        label = f"{self._module_label}.{index}"
         self._write_asm_command(f"@{label}")
 
     def _address_pointer(self, index):
@@ -663,7 +655,8 @@ class VMTranslator(object):
         if input_path.is_dir():
             input_fps = [pathlib.Path(fp)
                          for fp in glob.glob(str(input_path / '*.vm'))]
-            infs = [(input_fp.name, input_fp) for input_fp in input_fps]
+            infs = [(input_fp.with_suffix("").name, input_fp)
+                    for input_fp in input_fps]
             if len(input_fps) == 0:
                 raise ValueError(f"No input .vm files found in {input_path}.")
             fn_stem = input_path.parts[-1]
