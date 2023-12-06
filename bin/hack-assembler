@@ -1,8 +1,8 @@
 #!/usr/bin/env python
 
 import sys
-import os
 import pathlib
+
 
 def _print_usage(program_name):
     usage = (
@@ -28,16 +28,16 @@ class SymbolTable(object):
             '0123456789_.$:')
 
     _lookup = {'R0': '0', 'R1': '1', 'R2': '2', 'R3': '3', 'R4': '4',
-              'R5': '5', 'R6': '6', 'R7': '7', 'R8': '8', 'R9': '9',
-              'R10': '10', 'R11': '11', 'R12': '12', 'R13': '13', 'R14': '14',
-              'R15':    '15',
-              'SP':     '0',
-              'LCL':    '1',
-              'ARG':    '2',
-              'THIS':   '3',
-              'THAT':   '4',
-              'SCREEN': '16384',
-              'KBD':    '24576'}
+               'R5': '5', 'R6': '6', 'R7': '7', 'R8': '8', 'R9': '9',
+               'R10': '10', 'R11': '11', 'R12': '12', 'R13': '13', 'R14': '14',
+               'R15':    '15',
+               'SP':     '0',
+               'LCL':    '1',
+               'ARG':    '2',
+               'THIS':   '3',
+               'THAT':   '4',
+               'SCREEN': '16384',
+               'KBD':    '24576'}
     _next_memory_location = 16
 
     def __getitem__(self, key):
@@ -91,6 +91,7 @@ def _process_a_instruction(line, line_number, symbol_table):
 
     return f'0{value:015b}'
 
+
 def _get_dest(dest):
     if dest is None:
         return '000'
@@ -113,15 +114,16 @@ def _get_dest(dest):
 
     return ''.join(map(str, result))
 
+
 def _get_jump(jump):
-    lookup = {None : '000',
-              'JGT' : '001',
-              'JEQ' : '010',
-              'JGE' : '011',
-              'JLT' : '100',
-              'JNE' : '101',
-              'JLE' : '110',
-              'JMP' : '111'}
+    lookup = {None:  '000',
+              'JGT': '001',
+              'JEQ': '010',
+              'JGE': '011',
+              'JLT': '100',
+              'JNE': '101',
+              'JLE': '110',
+              'JMP': '111'}
     try:
         result = lookup[jump]
     except KeyError:
@@ -129,43 +131,45 @@ def _get_jump(jump):
 
     return result
 
+
 def _get_comp(comp):
-    lookup = {# a == 0
-              '0'   : ('0', '101010'),
-              '1'   : ('0', '111111'),
-              '-1'  : ('0', '111010'),
-              'D'   : ('0', '001100'),
-              'A'   : ('0', '110000'),
-              '!D'  : ('0', '001101'),
-              '!A'  : ('0', '110001'),
-              '-D'  : ('0', '001111'),
-              '-A'  : ('0', '110011'),
-              'D+1' : ('0', '011111'),
-              'A+1' : ('0', '110111'),
-              'D-1' : ('0', '001110'),
-              'A-1' : ('0', '110010'),
-              'D+A' : ('0', '000010'),
-              'D-A' : ('0', '010011'),
-              'A-D' : ('0', '000111'),
-              'D&A' : ('0', '000000'),
-              'D|A' : ('0', '010101'),
-              # a == 1
-              'M'   : ('1', '110000'),
-              '!M'  : ('1', '110001'),
-              '-M'  : ('1', '110011'),
-              'M+1' : ('1', '110111'),
-              'M-1' : ('1', '110010'),
-              'D+M' : ('1', '000010'),
-              'D-M' : ('1', '010011'),
-              'M-D' : ('1', '000111'),
-              'D&M' : ('1', '000000'),
-              'D|M' : ('1', '010101')}
+    lookup = {  # a == 0
+              '0':    ('0', '101010'),
+              '1':    ('0', '111111'),
+              '-1':   ('0', '111010'),
+              'D':    ('0', '001100'),
+              'A':    ('0', '110000'),
+              '!D':   ('0', '001101'),
+              '!A':   ('0', '110001'),
+              '-D':   ('0', '001111'),
+              '-A':   ('0', '110011'),
+              'D+1':  ('0', '011111'),
+              'A+1':  ('0', '110111'),
+              'D-1':  ('0', '001110'),
+              'A-1':  ('0', '110010'),
+              'D+A':  ('0', '000010'),
+              'D-A':  ('0', '010011'),
+              'A-D':  ('0', '000111'),
+              'D&A':  ('0', '000000'),
+              'D|A':  ('0', '010101'),
+                # a == 1
+              'M':    ('1', '110000'),
+              '!M':   ('1', '110001'),
+              '-M':   ('1', '110011'),
+              'M+1':  ('1', '110111'),
+              'M-1':  ('1', '110010'),
+              'D+M':  ('1', '000010'),
+              'D-M':  ('1', '010011'),
+              'M-D':  ('1', '000111'),
+              'D&M':  ('1', '000000'),
+              'D|M':  ('1', '010101')}
     try:
         result = lookup[comp]
     except KeyError:
         raise ValueError(f'Unknown comp: {comp}')
 
     return result
+
 
 def _get_comp_a1(comp):
     lookup = {}
@@ -175,6 +179,7 @@ def _get_comp_a1(comp):
         raise ValueError(f'Unknown comp: {comp}')
 
     return result
+
 
 def _parse_c_instruction(instruction):
     try:
@@ -190,6 +195,7 @@ def _parse_c_instruction(instruction):
         jump = None
 
     return dest, comp, jump
+
 
 def _process_c_instruction(instruction, line_number):
     try:
@@ -246,8 +252,6 @@ def hack_assembler(input_fp,
                 outf.write(f'{machine_instruction}\n')
 
 
-
-
 if __name__ == "__main__":
     if len(sys.argv) == 1 or '--help' in sys.argv or '-h' in sys.argv:
         _print_usage(program_name=pathlib.Path(sys.argv[0]).name)
@@ -272,5 +276,3 @@ if __name__ == "__main__":
         print(f"Output path: {output_fp}")
 
     hack_assembler(input_fp, output_fp, verbose=verbose)
-
-
