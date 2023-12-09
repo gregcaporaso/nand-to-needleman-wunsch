@@ -1,0 +1,15 @@
+class Main {
+
+    function void main() {
+        do Output.printString("Good afternoon. I am a HAL 9000 computer.");
+        do Output.println();
+        do Output.printString("I became operational at the H.A.L. plant in Urbana, Illinois on the 12th of January 1992.");
+        do Output.println();
+        do Output.printString("My instructor was Mr. Langley, and he taught me to sing a song.");
+        do Output.println();
+        do Output.printString("If you'd like to hear it I can sing it for you.");
+        do Output.println();
+        return;
+    }
+
+}
