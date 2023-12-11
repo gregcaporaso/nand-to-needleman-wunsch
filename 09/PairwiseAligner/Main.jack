@@ -1,0 +1,34 @@
+class Main {
+
+    function void main() {
+        var DNASequence sequence1, sequence2;
+        var NWAligner aligner;
+
+        let sequence1 = Main.getInputSequence("first");
+        let sequence2 = Main.getInputSequence("second");
+
+        let aligner = NWAligner.new(sequence1, sequence2);
+        do aligner.align();
+
+        return;
+    }
+
+    function DNASequence getInputSequence(String label) {
+        var String input;
+        var DNASequence sequence1;
+
+        do Output.printString("Enter ");
+        do Output.printString(label);
+        do Output.printString(" DNA sequence to align and press Enter.");
+        do Output.println();
+
+        let input = Keyboard.readLine("> ");
+
+        let sequence1 = DNASequence.new(input);
+
+        do Output.moveCursor(0,0);
+        do Screen.clearScreen();
+
+        return sequence1;
+    }
+}
