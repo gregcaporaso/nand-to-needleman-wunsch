@@ -1,31 +1,26 @@
 class DNASequence {
 
-    field Array sequence;
-    field int sequence_length;
+    field String sequence;
+    field int length;
 
     constructor DNASequence new(String s) {
-        var int i;
-        let i = 0;
+        let length = s.length();
+        let sequence = s;
 
-        let sequence_length = s.length();
-        let sequence = Array.new(sequence_length);
-
-        while (i < sequence_length){
-            let sequence[i] = s.charAt(i);
-            let i = i + 1;
-        }
-        do print();
         return this;
     }
 
+    method String getSequenceString() {
+        return sequence;
+    }
+
+    method int getLength() {
+        return length;
+    }
+
     method void print() {
-        var int i;
-        let i = 0;
-        while (i < sequence_length){
-            do Output.printChar(sequence[i]);
-            let i = i + 1;
-        }
-        do Output.println();
+        do Output.printString(sequence);
+
         return;
     }
 

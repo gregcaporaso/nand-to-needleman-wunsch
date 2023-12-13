@@ -1,0 +1,66 @@
+class NWMatrix {
+
+    field DNASequence sequence1, sequence2;
+    field Array matrix;
+
+    constructor NWMatrix new(DNASequence s1, DNASequence s2){
+        var int n_columns, n_rows, c, r;
+        var Array column;
+
+        let sequence1 = s1;
+        let sequence2 = s2;
+
+        let n_columns = s1.getLength();
+        let n_rows = s2.getLength();
+        let matrix = Array.new(n_columns);
+        let c = 0;
+        let r = 0;
+
+        while (c < n_columns){
+            let column = Array.new(n_rows);
+            while (r < n_rows){
+                let column[r] = 0;
+                let r = r + 1;
+            }
+            let matrix[c] = column;
+            let c = c + 1;
+        }
+
+        return this;
+    }
+
+    method void print() {
+        var String s1, s2;
+        var int n_columns, n_rows, c, r;
+        var Array current_row;
+
+        let s1 = sequence1.getSequenceString();
+        let s2 = sequence2.getSequenceString();
+        // technically I could get the lengths from s1 and s2 at this
+        // point, but that relies on the knowledge here that the Strings
+        // are how the sequences are represented inside of DNASequence
+        let n_columns = sequence1.getLength();
+        let n_rows = sequence2.getLength();
+        let c = 0;
+        let r = 0;
+
+        do Screen.clearScreen();
+        do Output.moveCursor(0,0);
+        do Output.printChar(32);
+        do Output.printString(s1);
+        do Output.println();
+        while (r < n_rows){
+            let current_row = matrix[r];
+            do Output.printChar(s2.charAt(r));
+            let c = 0;
+            while (c < n_columns){
+                do Output.printInt(current_row[c]);
+                let c = c + 1;
+            }
+            do Output.println();
+            let r = r + 1;
+        }
+        return;
+    }
+// pick up here - haven't tested any of this yet, but it's ready for testing now. ran out of time.
+}

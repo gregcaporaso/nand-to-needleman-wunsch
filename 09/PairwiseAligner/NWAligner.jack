@@ -1,10 +1,13 @@
 class NWAligner{
 
     field DNASequence sequence1, sequence2;
+    field NWMatrix f_matrix, t_matrix;
 
     constructor NWAligner new(DNASequence s1, DNASequence s2) {
         let sequence1 = s1;
         let sequence2 = s2;
+
+        let f_matrix = NWMatrix.new(s1, s2);
 
         return this;
     }
@@ -17,6 +20,8 @@ class NWAligner{
 
         do sequence1.print();
         do sequence2.print();
+
+        do f_matrix.print();
 
         return;
     }
