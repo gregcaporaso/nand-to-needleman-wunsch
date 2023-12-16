@@ -33,6 +33,7 @@ class NWMatrix {
         var String s1, s2;
         var int n_columns, n_rows, c, r;
         var Array current_row;
+        var int current_value;
 
         let s1 = sequence1.getSequenceString();
         let s2 = sequence2.getSequenceString();
@@ -54,7 +55,16 @@ class NWMatrix {
             do Output.printChar(s2.charAt(r));
             let c = 0;
             while (c < n_columns){
-                do Output.printInt(current_row[c]);
+                let current_value = current_row[c];
+                if (current_value > 0) {
+                    do Output.printChar(43);
+                } else {
+                    if (current_value < 0) {
+                        do Output.printChar(45);
+                    } else {
+                        do Output.printChar(126);
+                    }
+                }
                 let c = c + 1;
             }
             do Output.println();
