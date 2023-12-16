@@ -1,25 +1,48 @@
 class NWAligner{
 
     field DNASequence sequence1, sequence2;
-    field NWMatrix f_matrix, t_matrix;
+    field AlignmentMatrix f_matrix, t_matrix;
+    field int match, mismatch, gap_open, gap_extend;
 
     constructor NWAligner new(DNASequence s1, DNASequence s2) {
+        let match = 1;
+        let mismatch = -1;
+        let gap_open = -5;
+        let gap_extend = -2;
+
         let sequence1 = s1;
         let sequence2 = s2;
 
-        let f_matrix = NWMatrix.new(s1, s2);
+        let f_matrix = AlignmentMatrix.new(s1, s2);
+        let t_matrix = AlignmentMatrix.new(s1, s2);
 
         return this;
     }
 
     method void align() {
-        do Output.moveCursor(0, 0);
+        var String s1, s2;
+        var int r, c, n_rows, n_columns;
+        var char current_base;
 
-        do Output.printString("Beginning alignment of:");
-        do Output.println();
+        let s1 = sequence1.getSequenceString();
+        let s2 = sequence2.getSequenceString();
+        let n_rows = f_matrix.getNRows();
+        let n_columns = f_matrix.getNColumns();
 
-        do sequence1.print();
-        do sequence2.print();
+        let r = 0;
+        while (r < n_rows){
+            let current_base = s2.charAt(r);
+            let c = 0;
+            while (c < n_columns){
+                if (current_base = s1.charAt(c)) {
+                    do f_matrix.setValueAt(r, c, match);
+                } else {
+                    do f_matrix.setValueAt(r, c, mismatch);
+                }
+                let c = c + 1;
+            }
+            let r = r + 1;
+        }
 
         do f_matrix.print();
 
