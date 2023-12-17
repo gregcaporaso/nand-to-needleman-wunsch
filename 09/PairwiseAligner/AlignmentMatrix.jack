@@ -11,8 +11,8 @@ class AlignmentMatrix {
         let sequence1 = s1;
         let sequence2 = s2;
 
-        let n_columns = s1.getLength();
-        let n_rows = s2.getLength();
+        let n_columns = s1.getLength() + 1;
+        let n_rows = s2.getLength() + 1;
 
         let matrix = Array.new(n_rows);
         let r = 0;
@@ -45,7 +45,13 @@ class AlignmentMatrix {
         return;
     }
 
-    method void print() {
+    method int getValueAt(int row_n, int col_n) {
+        var Array row;
+        let row = matrix[row_n];
+        return row[col_n];
+    }
+
+    method void print(boolean encode) {
         var String s1, s2;
         var int r, c;
         var Array current_row;
@@ -57,24 +63,33 @@ class AlignmentMatrix {
         do Screen.clearScreen();
         do Output.moveCursor(0,0);
         do Output.printChar(32);
+        do Output.printChar(32);
         do Output.printString(s1);
         do Output.println();
 
         let r = 0;
         while (r < n_rows){
             let current_row = matrix[r];
-            do Output.printChar(s2.charAt(r));
+            if (r = 0) {
+                do Output.printChar(32);
+            } else {
+                do Output.printChar(s2.charAt(r - 1));
+            }
             let c = 0;
             while (c < n_columns){
                 let current_value = current_row[c];
-                if (current_value > 0) {
-                    do Output.printChar(43);
-                } else {
-                    if (current_value < 0) {
-                        do Output.printChar(45);
+                if (encode) {
+                    if (current_value > 0) {
+                        do Output.printChar(43);
                     } else {
-                        do Output.printChar(32);
+                        if (current_value < 0) {
+                            do Output.printChar(45);
+                        } else {
+                            do Output.printChar(32);
+                        }
                     }
+                } else {
+                    do Output.printChar(current_value);
                 }
                 let c = c + 1;
             }

@@ -2,13 +2,18 @@ class NWAligner{
 
     field DNASequence sequence1, sequence2;
     field AlignmentMatrix f_matrix, t_matrix;
-    field int match, mismatch, gap_open, gap_extend;
+    static int match, mismatch, gap;
+    static char diag, up, left, end;
 
     constructor NWAligner new(DNASequence s1, DNASequence s2) {
+
         let match = 1;
         let mismatch = -1;
-        let gap_open = -5;
-        let gap_extend = -2;
+        let gap = -3;
+        let diag = 92;
+        let up = 94;
+        let left = 60;
+        let end = 42;
 
         let sequence1 = s1;
         let sequence2 = s2;
@@ -19,33 +24,97 @@ class NWAligner{
         return this;
     }
 
-    method void align() {
-        var String s1, s2;
-        var int r, c, n_rows, n_columns;
-        var char current_base;
+    method int align() {
+        var int alignment_score;
+        var Array aligned_sequences;
+
+        let alignment_score = _fill_alignment_matrices();
+        let aligned_sequences = _traceback_alignment();
+
+        do Screen.clearScreen();
+        do Output.moveCursor(0,0);
+        do Output.printString("Score: ");
+        do Output.println();
+        do Output.printInt(alignment_score);
+
+        return alignment_score;
+    }
+
+    method int _fill_alignment_matrices(){
+        var String s1, s2, result;
+        var int r, c, n_rows, n_columns, current_score, diag_score, up_score, left_score;
+        var char current_base, current_direction;
 
         let s1 = sequence1.getSequenceString();
         let s2 = sequence2.getSequenceString();
         let n_rows = f_matrix.getNRows();
         let n_columns = f_matrix.getNColumns();
+        let current_score = 0;
 
-        let r = 0;
+        do f_matrix.setValueAt(0, 0, 0);
+        do t_matrix.setValueAt(0, 0, end);
+        let r = 1;
         while (r < n_rows){
-            let current_base = s2.charAt(r);
-            let c = 0;
+            let current_score = f_matrix.getValueAt(r - 1, 0) + gap;
+            do f_matrix.setValueAt(r, 0, current_score);
+            do t_matrix.setValueAt(r, 0, up);
+            let r = r + 1;
+        }
+        let c = 1;
+        while (c < n_columns){
+            let current_score = f_matrix.getValueAt(0, c - 1) + gap;
+            do f_matrix.setValueAt(0, c, current_score);
+            do t_matrix.setValueAt(0, c, left);
+            let c = c + 1;
+        }
+
+        let r = 1;
+        while (r < n_rows) {
+            let current_base = s2.charAt(r - 1);
+            let c = 1;
             while (c < n_columns){
-                if (current_base = s1.charAt(c)) {
-                    do f_matrix.setValueAt(r, c, match);
+                if ((current_base = s1.charAt(c - 1))){
+                    let current_score = match;
                 } else {
-                    do f_matrix.setValueAt(r, c, mismatch);
+                    let current_score = mismatch;
                 }
+                let left_score = current_score + f_matrix.getValueAt(r, c - 1);
+                let up_score = current_score + f_matrix.getValueAt(r - 1, c);
+                let diag_score = current_score + f_matrix.getValueAt(r - 1, c - 1);
+
+                if  (~(left_score > diag_score)) {
+                    if (~(up_score > diag_score)){
+                        let current_score = diag_score;
+                        let current_direction = diag;
+                    } else {
+                        let current_score = up_score;
+                        let current_direction = up;
+                    }
+                } else {
+                    let current_score = left_score;
+                    let current_direction = left;
+                }
+
+                do f_matrix.setValueAt(r, c, current_score);
+                do t_matrix.setValueAt(r, c, current_direction);
                 let c = c + 1;
             }
             let r = r + 1;
         }
 
-        do f_matrix.print();
+        do f_matrix.print(true);
+        do Sys.wait(2500);
+        do t_matrix.print(false);
+        do Sys.wait(2500);
 
-        return;
+        return current_score;
     }
+
+    method Array _traceback_alignment() {
+        var Array aligned_sequences;
+        let aligned_sequences = Array.new(2);
+
+        return aligned_sequences;
+    }
+
 }
