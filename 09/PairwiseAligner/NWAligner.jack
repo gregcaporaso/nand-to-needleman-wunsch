@@ -1,15 +1,18 @@
 class NWAligner{
+    // Needleman-Wunsch pairwise sequence aligner
+    // this was built based on the reference implementation in
+    // An Introduction to Applied Bioinformatics (readiab.org)
 
     field DNASequence sequence1, sequence2;
     field AlignmentMatrix f_matrix, t_matrix;
-    static int match, mismatch, gap;
+    static int match, mismatch, gap, n_rows, n_columns;
     static char diag, up, left, end;
 
     constructor NWAligner new(DNASequence s1, DNASequence s2) {
 
-        let match = 1;
-        let mismatch = -1;
-        let gap = -3;
+        let match = 2;
+        let mismatch = -3;
+        let gap = -5;
         let diag = 92;
         let up = 94;
         let left = 60;
@@ -21,20 +24,29 @@ class NWAligner{
         let f_matrix = AlignmentMatrix.new(s1, s2);
         let t_matrix = AlignmentMatrix.new(s1, s2);
 
+        let n_rows = f_matrix.getNRows();
+        let n_columns = f_matrix.getNColumns();
+
         return this;
     }
 
     method int align() {
         var int alignment_score;
         var Array aligned_sequences;
+        var DNASequence temp;
 
         let alignment_score = _fill_alignment_matrices();
         let aligned_sequences = _traceback_alignment();
 
         do Screen.clearScreen();
         do Output.moveCursor(0,0);
-        do Output.printString("Score: ");
+        let temp = aligned_sequences[0];
+        do temp.print();
         do Output.println();
+        let temp = aligned_sequences[1];
+        do temp.print();
+        do Output.println();
+        do Output.printString("Score: ");
         do Output.printInt(alignment_score);
 
         return alignment_score;
@@ -42,7 +54,7 @@ class NWAligner{
 
     method int _fill_alignment_matrices(){
         var String s1, s2, result;
-        var int r, c, n_rows, n_columns, current_score, diag_score, up_score, left_score;
+        var int r, c, current_score, diag_score, up_score, left_score;
         var char current_base, current_direction;
 
         let s1 = sequence1.getSequenceString();
@@ -53,6 +65,8 @@ class NWAligner{
 
         do f_matrix.setValueAt(0, 0, 0);
         do t_matrix.setValueAt(0, 0, end);
+
+        // initialize first column
         let r = 1;
         while (r < n_rows){
             let current_score = f_matrix.getValueAt(r - 1, 0) + gap;
@@ -60,6 +74,8 @@ class NWAligner{
             do t_matrix.setValueAt(r, 0, up);
             let r = r + 1;
         }
+
+        // initialize first row
         let c = 1;
         while (c < n_columns){
             let current_score = f_matrix.getValueAt(0, c - 1) + gap;
@@ -74,13 +90,12 @@ class NWAligner{
             let c = 1;
             while (c < n_columns){
                 if ((current_base = s1.charAt(c - 1))){
-                    let current_score = match;
+                    let diag_score = match + f_matrix.getValueAt(r - 1, c - 1);
                 } else {
-                    let current_score = mismatch;
+                    let diag_score = mismatch + f_matrix.getValueAt(r - 1, c - 1);
                 }
-                let left_score = current_score + f_matrix.getValueAt(r, c - 1);
-                let up_score = current_score + f_matrix.getValueAt(r - 1, c);
-                let diag_score = current_score + f_matrix.getValueAt(r - 1, c - 1);
+                let left_score = gap + f_matrix.getValueAt(r, c - 1);
+                let up_score = gap + f_matrix.getValueAt(r - 1, c);
 
                 if  (~(left_score > diag_score)) {
                     if (~(up_score > diag_score)){
@@ -102,9 +117,11 @@ class NWAligner{
             let r = r + 1;
         }
 
-        do f_matrix.print(true);
+        do f_matrix.print(true, 0);
         do Sys.wait(2500);
-        do t_matrix.print(false);
+        do f_matrix.print(false, 32);
+        do Sys.wait(2500);
+        do t_matrix.print(false, 0);
         do Sys.wait(2500);
 
         return current_score;
@@ -112,7 +129,52 @@ class NWAligner{
 
     method Array _traceback_alignment() {
         var Array aligned_sequences;
+        var String aligned_sequence1, aligned_sequence2;
+        var DNASequence result1, result2;
+        var int max_alignment_length, r, c;
+        var char current_direction;
+        var boolean at_alignment_start;
+
+        let max_alignment_length = sequence1.getLength() + sequence2.getLength();
+        let aligned_sequence1 = String.new(max_alignment_length);
+        let aligned_sequence2 = String.new(max_alignment_length);
+        let r = n_rows - 1;
+        let c = n_columns - 1;
+        let at_alignment_start = false;
+
+        while (~ at_alignment_start) {
+            let current_direction = t_matrix.getValueAt(r, c);
+            if (current_direction = 92) { // diag
+                let r = r - 1;
+                let c = c - 1;
+                do aligned_sequence1.appendChar(sequence1.charAt(c));
+                do aligned_sequence2.appendChar(sequence2.charAt(r));
+            } else {
+                if (current_direction = 94) { // up
+                    let r = r - 1;
+                    do aligned_sequence1.appendChar(45);
+                    do aligned_sequence2.appendChar(sequence2.charAt(r));
+                } else {
+                    if (current_direction = 60) { //left
+                        let c = c - 1;
+                        do aligned_sequence1.appendChar(sequence1.charAt(c));
+                        do aligned_sequence2.appendChar(45);
+                    } else { // we're done!
+                        let at_alignment_start = true;
+                    }
+                }
+            }
+        }
+
         let aligned_sequences = Array.new(2);
+
+        // TODO: reverse these before returning
+        let result1 = DNASequence.new(aligned_sequence1);
+        do result1.reverse();
+        let result2 = DNASequence.new(aligned_sequence2);
+        do result2.reverse();
+        let aligned_sequences[0] = result1;
+        let aligned_sequences[1] = result2;
 
         return aligned_sequences;
     }

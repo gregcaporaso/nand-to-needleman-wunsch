@@ -18,8 +18,31 @@ class DNASequence {
         return length;
     }
 
+    method char charAt(int i) {
+        return sequence.charAt(i);
+    }
+
     method void print() {
         do Output.printString(sequence);
+
+        return;
+    }
+
+    method void reverse() {
+        var char temp;
+        var int start, end;
+
+        let start = 0;
+        let end = length - 1;
+
+        while (start < end){
+            let temp = sequence.charAt(end);
+            do sequence.setCharAt(end, sequence.charAt(start));
+            do sequence.setCharAt(start, temp);
+
+            let start = start + 1;
+            let end = end - 1;
+        }
 
         return;
     }

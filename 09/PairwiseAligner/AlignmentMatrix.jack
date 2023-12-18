@@ -51,7 +51,7 @@ class AlignmentMatrix {
         return row[col_n];
     }
 
-    method void print(boolean encode) {
+    method void print(boolean encode, int offset) {
         var String s1, s2;
         var int r, c;
         var Array current_row;
@@ -89,6 +89,10 @@ class AlignmentMatrix {
                         }
                     }
                 } else {
+                    if (current_value < 0) {
+                        let current_value = -current_value;
+                    }
+                    let current_value = current_value + offset;
                     do Output.printChar(current_value);
                 }
                 let c = c + 1;
