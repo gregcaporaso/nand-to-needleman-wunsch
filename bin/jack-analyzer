@@ -1,0 +1,89 @@
+#!/usr/bin/env python
+
+import sys
+import pathlib
+import glob
+
+
+def _print_usage(program_name):
+    usage = (
+        f"\n{program_name} usage instructions:\n\n"
+        f"  {program_name} (--help | -h)\n"
+        f"     print help text and exit\n\n"
+        f"  {program_name} (--verbose) in.asm\n"
+        f"     assemble in.asm to in.hack\n\n"
+        f"  {program_name} (--verbose) my/path/in.asm\n"
+        f"     assemble my/path/in.asm to my/path/in.hack\n\n"
+        "✌️")
+    print(usage)
+
+
+class JackTokenizer(object):
+
+    def __init__(self, input_f, verbose=False):
+        self._input_f = input_f
+        self._verbose = verbose
+
+    def __call__(self):
+        pass
+
+
+
+class JackAnalyzer(object):
+    _in_ex = '.jack'
+    _out_ex = 'T.xml'
+
+    def __init__(self, verbose=False):
+        self._verbose = verbose
+
+    def __call__(self, input_path):
+        io_fps = self._process_input_path(input_path)
+
+    def _process_input_path(self, input_path):
+        iex = self._in_ex
+        oex = self._out_ex
+        infs = []
+        outfs = []
+        input_path = pathlib.Path(input_path)
+
+        if not input_path.exists():
+            raise ValueError(f"Input path doesn't exist: {input_path}")
+
+        if input_path.is_dir():
+            input_fps = [pathlib.Path(fp)
+                         for fp in glob.glob(str(input_path / f'*{iex}'))]
+            if len(input_fps) == 0:
+                raise ValueError(
+                    f"No input {iex} files found in {input_path}.")
+        else:
+            if not input_path.suffix == iex:
+                raise ValueError(
+                    f"Input path must have extension {iex}, "
+                    f"but found {input_path.suffix}")
+            input_fps = [input_path]
+
+        results = []
+        for input_fp in input_fps:
+            output_fp = input_fp.parent / \
+                        pathlib.Path(f"{input_fp.with_suffix('').name}{oex}")
+            results.append((input_fp, output_fp))
+
+        if self._verbose:
+            for (inf, outf) in results:
+                print(f' {inf} → {outf}')
+            print()
+
+        return results
+
+
+if __name__ == "__main__":
+    if len(sys.argv) == 1 or '--help' in sys.argv or '-h' in sys.argv:
+        _print_usage(program_name=pathlib.Path(sys.argv[0]).name)
+        exit(0)
+
+    verbose = '--verbose' in sys.argv
+    input_path = pathlib.Path(sys.argv[-1])
+
+    tokenizer = JackAnalyzer(verbose)
+    tokenizer(input_path)
+
