@@ -3,6 +3,7 @@
 import sys
 import pathlib
 import glob
+from enum import Enum
 
 
 def _print_usage(program_name):
@@ -17,6 +18,12 @@ def _print_usage(program_name):
         "✌️")
     print(usage)
 
+T = Enum('TokenType',
+         ['KEYWORD',
+          'SYMBOL',
+          'IDENTIFIER',
+          'INT_CONST',
+          'STRING_CONST'])
 
 class JackTokenizer(object):
 
@@ -28,16 +35,58 @@ class JackTokenizer(object):
         pass
 
 
-
 class JackAnalyzer(object):
     _in_ex = '.jack'
     _out_ex = 'T.xml'
+
+    _symbols = set(list('{}()[].,;+-*/&|<>=~'))
 
     def __init__(self, verbose=False):
         self._verbose = verbose
 
     def __call__(self, input_path):
         io_fps = self._process_input_path(input_path)
+        for infp, outfp in io_fps:
+            with open(infp) as inf, open(outfp, 'w') as outf:
+                outf.write('<token>\n')
+                while True:
+                    c = inf.read(1)
+                    if c == '':
+                        break
+                    if c.isspace():
+                        continue
+                    token_type, token = self._identify_token(c, inf)
+                    outf.write(
+                        f"{self._format_token_xml(token_type, token)}\n")
+                outf.write('</token>\n')
+
+    def _raise_error(self, error_message):
+        raise ValueError(error_message)
+
+    def _identify_token(self, c, inf):
+        if c in self._symbols:
+            return T.SYMBOL, self._process_symbol(c)
+        else:
+            self._raise_error(
+                f'Unknown token type encountered on character {c}.')
+
+    def _format_token_xml(self, token_type, token):
+        if token_type is T.SYMBOL:
+            return f"<symbol> {token} </symbol>"
+        else:
+            # should be unreachable
+            self._raise_error(
+                f'Unknown token type: {token_type}.')
+
+    def _process_symbol(self, c):
+        if c == '<':
+            return '&lt;'
+        elif c == '>':
+            return '&gt;'
+        elif c == '&':
+            return '&amp;'
+        else:
+            return c
 
     def _process_input_path(self, input_path):
         iex = self._in_ex
