@@ -4,6 +4,7 @@ import sys
 import pathlib
 import glob
 from enum import Enum
+import tempfile
 
 
 def _print_usage(program_name):
@@ -18,6 +19,7 @@ def _print_usage(program_name):
         "✌️")
     print(usage)
 
+
 T = Enum('TokenType',
          ['KEYWORD',
           'SYMBOL',
@@ -25,40 +27,82 @@ T = Enum('TokenType',
           'INT_CONST',
           'STRING_CONST'])
 
+
+K = Enum('Keyword',
+         ['CLASS',
+          'METHOD',
+          'FUNCTION',
+          'CONSTRUCTOR',
+          'INT',
+          'BOOLEAN',
+          'CHAR',
+          'VOID',
+          'VAR',
+          'STATIC',
+          'FIELD',
+          'LET',
+          'DO',
+          'IF',
+          'ELSE',
+          'WHILE',
+          'RETURN',
+          'TRUE',
+          'FALSE',
+          'NULL',
+          'THIS'])
+
+
 class JackTokenizer(object):
 
-    def __init__(self, input_f, verbose=False):
-        self._input_f = input_f
-        self._verbose = verbose
-
-    def __call__(self):
-        pass
-
-
-class JackAnalyzer(object):
-    _in_ex = '.jack'
     _out_ex = 'T.xml'
-
     _symbols = set(list('{}()[].,;+-*/&|<>=~'))
+    _keywords = set(['class',
+                     'method',
+                     'function',
+                     'constructor',
+                     'int',
+                     'boolean',
+                     'char',
+                     'void',
+                     'var',
+                     'static',
+                     'field',
+                     'let',
+                     'do',
+                     'if',
+                     'else',
+                     'while',
+                     'return',
+                     'true',
+                     'false',
+                     'null',
+                     'this'])
 
     def __init__(self, verbose=False):
         self._verbose = verbose
 
-    def __call__(self, input_path):
-        io_fps = self._process_input_path(input_path)
-        for infp, outfp in io_fps:
-            with open(infp) as inf, open(outfp, 'w') as outf:
-                outf.write('<token>\n')
-                while True:
-                    c = inf.read(1)
-                    if c == '':
-                        break
-                    if c.isspace():
-                        continue
-                    token_type, token = self._identify_token(c, inf)
-                    outf.write(
-                        f"{self._format_token_xml(token_type, token)}\n")
-                outf.write('</token>\n')
+    def __call__(self, infp):
+        outfp = infp.parent / \
+                    pathlib.Path(f"{infp.with_suffix('').name}{self._out_ex}")
+
+        if self._verbose:
+            print(f"Tokenizing {infp} → {outfp}")
+
+        with tempfile.TemporaryFile(mode='w+') as inf, \
+                open(infp) as commenty_inf, \
+                open(outfp, 'w') as outf:
+            self._strip_comments(commenty_inf, inf)
+            outf.write('<tokens>\n')
+            while True:
+                c = inf.read(1)
+                if c == '':
+                    break
+                if c.isspace():
+                    continue
+                token_type, token = self._identify_token(c, inf)
+                outf.write(
+                    f"{self._format_token_xml(token_type, token)}\n")
+            outf.write('</tokens>\n')
 
     def _raise_error(self, error_message):
         raise ValueError(error_message)
@@ -66,13 +110,24 @@ class JackAnalyzer(object):
     def _identify_token(self, c, inf):
         if c in self._symbols:
             return T.SYMBOL, self._process_symbol(c)
+        elif c == '"':
+            return T.STRING_CONST, self._process_string_constant(inf)
+        elif c.isdigit():
+            return T.INT_CONST, self._process_int_constant(c, inf)
         else:
-            self._raise_error(
-                f'Unknown token type encountered on character {c}.')
+            return self._process_keyword_or_identifier(c, inf)
 
     def _format_token_xml(self, token_type, token):
         if token_type is T.SYMBOL:
             return f"<symbol> {token} </symbol>"
+        elif token_type is T.STRING_CONST:
+            return f"<stringConstant> {token} </stringConstant>"
+        elif token_type is T.INT_CONST:
+            return f"<integerConstant> {token} </integerConstant>"
+        elif token_type is T.IDENTIFIER:
+            return f"<identifier> {token} </identifier>"
+        elif token_type is T.KEYWORD:
+            return f"<keyword> {token} </keyword>"
         else:
             # should be unreachable
             self._raise_error(
@@ -88,11 +143,103 @@ class JackAnalyzer(object):
         else:
             return c
 
-    def _process_input_path(self, input_path):
+    def _process_string_constant(self, inf):
+        result = []
+        while True:
+            c = inf.read(1)
+            if c == '"':
+                break
+            else:
+                result.append(c)
+        return ''.join(result)
+
+    def _process_int_constant(self, c, inf):
+        result = [c]
+        while True:
+            c = inf.read(1)
+            if not c.isdigit():
+                inf.seek(inf.tell() - 1)
+                break
+            else:
+                result.append(c)
+        result = ''.join(result)
+
+        if int(result) > 32767:
+            self._raise_error("Integer values cannot be larger than 32,767, "
+                              f"but encountered {result}.")
+
+        return result
+
+    def _process_keyword_or_identifier(self, c, inf):
+        result = [c]
+        while True:
+            c = inf.read(1)
+            if not (c.isalnum() or c == '_'):
+                inf.seek(inf.tell() - 1)
+                break
+            else:
+                result.append(c)
+        result = ''.join(result)
+
+        if result in self._keywords:
+            return T.KEYWORD, result
+        else:
+            return T.IDENTIFIER, result
+
+    def _strip_comments(self, inf, outf):
+        inside_comment = False
+        for line in inf:
+            if not inside_comment:
+                start_comment_index = line.find('//')
+                if start_comment_index >= 0:
+                    line = line[:start_comment_index]
+
+            line = line.strip()
+
+            if line == '':
+                continue
+
+            if not inside_comment:
+                start_comment_index = line.find('/*')
+                if start_comment_index == -1:
+                    outf.write(line)
+                    outf.write('\n')
+                else:
+                    inside_comment = True
+                    pre_comment = line[:start_comment_index]
+                    outf.write(pre_comment)
+                    outf.write('\n')
+                    line = line[start_comment_index + 2:]
+
+            if inside_comment:
+                end_comment_index = line.find('*/')
+                if end_comment_index >= 0:
+                    inside_comment = False
+                    post_comment = line[end_comment_index + 2:]
+                    outf.write(post_comment)
+                    outf.write('\n')
+        outf.seek(0)
+
+
+class JackAnalyzer(object):
+
+    _in_ex = '.jack'
+
+    def __init__(self, verbose=False):
+        self._verbose = verbose
+        self._tokenizer = JackTokenizer(verbose)
+
+    def __call__(self, input_path):
+        infps = self._get_infps(input_path)
+        xmlTfps = []
+        for infp in infps:
+            xmlTfps.append(self._tokenizer(infp))
+
+    def _raise_error(self, error_message):
+        raise ValueError(error_message)
+
+    def _get_infps(self, input_path):
         iex = self._in_ex
-        oex = self._out_ex
-        infs = []
-        outfs = []
         input_path = pathlib.Path(input_path)
 
         if not input_path.exists():
@@ -111,18 +258,13 @@ class JackAnalyzer(object):
                     f"but found {input_path.suffix}")
             input_fps = [input_path]
 
-        results = []
-        for input_fp in input_fps:
-            output_fp = input_fp.parent / \
-                        pathlib.Path(f"{input_fp.with_suffix('').name}{oex}")
-            results.append((input_fp, output_fp))
-
         if self._verbose:
-            for (inf, outf) in results:
-                print(f' {inf} → {outf}')
+            print("Input file(s):")
+            for inf in input_fps:
+                print(f' {inf}')
             print()
 
-        return results
+        return input_fps
 
 
 if __name__ == "__main__":
@@ -133,6 +275,5 @@ if __name__ == "__main__":
     verbose = '--verbose' in sys.argv
     input_path = pathlib.Path(sys.argv[-1])
 
-    tokenizer = JackAnalyzer(verbose)
-    tokenizer(input_path)
-
+    ja = JackAnalyzer(verbose)
+    ja(input_path)
