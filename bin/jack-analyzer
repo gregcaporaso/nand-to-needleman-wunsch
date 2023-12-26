@@ -28,6 +28,18 @@ T = Enum('TokenType',
           'STRING_CONST'])
 
 
+TOKEN_TAGS = {T.KEYWORD.name: 'keyword',
+              T.SYMBOL.name: 'symbol',
+              T.IDENTIFIER.name: 'identifier',
+              T.INT_CONST.name: 'integerConstant',
+              T.STRING_CONST.name: 'stringConstant'}
+
+TAG_TYPES = {'keyword': T.KEYWORD,
+             'symbol': T.SYMBOL,
+             'identifier': T.IDENTIFIER,
+             'integerConstant': T.INT_CONST,
+             'stringConstant': T.STRING_CONST}
+
 K = Enum('Keyword',
          ['CLASS',
           'METHOD',
@@ -104,6 +116,8 @@ class JackTokenizer(object):
                     f"{self._format_token_xml(token_type, token)}\n")
             outf.write('</tokens>\n')
 
+        return outfp
+
     def _raise_error(self, error_message):
         raise ValueError(error_message)
 
@@ -118,20 +132,8 @@ class JackTokenizer(object):
             return self._process_keyword_or_identifier(c, inf)
 
     def _format_token_xml(self, token_type, token):
-        if token_type is T.SYMBOL:
-            return f"<symbol> {token} </symbol>"
-        elif token_type is T.STRING_CONST:
-            return f"<stringConstant> {token} </stringConstant>"
-        elif token_type is T.INT_CONST:
-            return f"<integerConstant> {token} </integerConstant>"
-        elif token_type is T.IDENTIFIER:
-            return f"<identifier> {token} </identifier>"
-        elif token_type is T.KEYWORD:
-            return f"<keyword> {token} </keyword>"
-        else:
-            # should be unreachable
-            self._raise_error(
-                f'Unknown token type: {token_type}.')
+        tag = TOKEN_TAGS[token_type.name]
+        return f"<{tag}> {token} </{tag}>"
 
     def _process_symbol(self, c):
         if c == '<':
@@ -221,6 +223,86 @@ class JackTokenizer(object):
         outf.seek(0)
 
 
+class JackSyntaxError(ValueError):
+    pass
+
+
+class CompilationEngine(object):
+
+    _out_ex = '.xml'
+    _next_token_type = None
+    _next_token = None
+
+    def __init__(self, inf, outf, verbose=False):
+        self._verbose = verbose
+        self._inf = inf
+        self._outf = outf
+
+    def __call__(self):
+        self._advance_token()
+        self._compile_class()
+
+    def _advance_token(self):
+        # ensure that this generally works for different types of
+        # self._inf, e.g., so streams rather than files can be passed as
+        # input
+        self._next_token_type, self._next_token = \
+            self._parse_xmlT_line(self._inf.readline())
+
+    def _parse_xmlT_line(self, line):
+        line = line.strip()
+        if line == '<tokens>':
+            return self._parse_xmlT_line(self._inf.readline())
+        elif line == '</tokens>':
+            return None, None
+        else:
+            open_tag, token, _ = line.split()
+
+            try:
+                token_type = TAG_TYPES[open_tag[1:-1]]
+            except KeyError:
+                raise ValueError(f"Unknown tag encountered: {open_tag[1:-1]}")
+
+            return token_type, token
+
+    def _process_token(self, expected_token, error_message=None):
+        if self._next_token == expected_token:
+            tag = TOKEN_TAGS[self._next_token_type.name]
+            self._outf.write(f"<{tag}> {self._next_token} </{tag}>\n")
+            self._advance_token()
+        else:
+            if error_message is None:
+                error_message = (f"Expected token {expected_token} but found "
+                                 f"token {self._next_token}.")
+            raise JackSyntaxError(error_message)
+
+    def _process_identifier(self, tag):
+        if self._next_token_type != T.IDENTIFIER:
+            raise JackSyntaxError(
+                f"Expected identifier but found {str(self._next_token_type)}")
+
+        self._outf.write(f"<{tag}> {self._next_token} </{tag}>\n")
+        self._advance_token()
+
+    def _compile_class(self):
+        self._outf.write('<class> ')
+
+        self._process_token('class',
+                            '.jack files must begin with class definition.')
+        self._process_identifier('className')
+        self._process_token('{')
+        self._compile_class_var_dec()
+        self._compile_subroutine_dec()
+        self._process_token('}')
+
+        self._outf.write('</class>\n')
+
+    def _compile_class_var_dec(self):
+        pass
+
+    def _compile_subroutine_dec(self):
+        pass
+
 class JackAnalyzer(object):
 
     _in_ex = '.jack'
@@ -230,10 +312,25 @@ class JackAnalyzer(object):
         self._tokenizer = JackTokenizer(verbose)
 
     def __call__(self, input_path):
-        infps = self._get_infps(input_path)
+        jackfps = self._get_infps(input_path)
         xmlTfps = []
-        for infp in infps:
-            xmlTfps.append(self._tokenizer(infp))
+        for jackfp in jackfps:
+            xmlTfps.append(self._tokenizer(jackfp))
+
+        xmlfps = []
+        for xmlTfp in xmlTfps:
+            # remove the T from xT.xml
+            xmlfp = xmlTfp.parent / \
+                        pathlib.Path(str(xmlTfp.stem)[:-1]).with_suffix('.xml')
+
+            if self._verbose:
+                print(f"Compiling {xmlTfp} → {xmlfp}")
+
+            with open(xmlTfp) as inf, open(xmlfp, 'w') as outf:
+                compiler = CompilationEngine(inf, outf, verbose)
+                compiler()
+
+            xmlfps.append(xmlfp)
 
     def _raise_error(self, error_message):
         raise ValueError(error_message)
