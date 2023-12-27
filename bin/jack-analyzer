@@ -232,6 +232,7 @@ class CompilationEngine(object):
     _out_ex = '.xml'
     _next_token_type = None
     _next_token = None
+    _builtin_types = set(['int', 'char', 'boolean'])
 
     def __init__(self, inf, outf, verbose=False):
         self._verbose = verbose
@@ -265,43 +266,131 @@ class CompilationEngine(object):
 
             return token_type, token
 
-    def _process_token(self, expected_token, error_message=None):
-        if self._next_token == expected_token:
+    def _process_token(self, *args, start='', end=' ', error_message=None):
+        if self._next_token in args:
             tag = TOKEN_TAGS[self._next_token_type.name]
-            self._outf.write(f"<{tag}> {self._next_token} </{tag}>\n")
+            self._outf.write(
+                f"{start}<{tag}> {self._next_token} </{tag}>{end}")
             self._advance_token()
         else:
             if error_message is None:
-                error_message = (f"Expected token {expected_token} but found "
-                                 f"token {self._next_token}.")
+                error_message = (f"Next token {self._next_token} is not in "
+                                 "set of allowed next tokens:\n"
+                                 f" ({', '.join(args)})")
             raise JackSyntaxError(error_message)
 
-    def _process_identifier(self, tag):
+    def _process_identifier(self, start='', end=' ', error_message=None):
         if self._next_token_type != T.IDENTIFIER:
-            raise JackSyntaxError(
-                f"Expected identifier but found {str(self._next_token_type)}")
+            if error_message is None:
+                error_message = \
+                    ("Expected identifier but found "
+                     f"{str(self._next_token_type)}")
+            raise JackSyntaxError(error_message)
 
-        self._outf.write(f"<{tag}> {self._next_token} </{tag}>\n")
+        tag = TOKEN_TAGS[self._next_token_type.name]
+
+        self._outf.write(f"<{tag}> {self._next_token} </{tag}>{end}")
         self._advance_token()
+
+    def _process_type(self, start='', end=' '):
+        tag = TOKEN_TAGS[self._next_token_type.name]
+        if self._next_token_type == T.KEYWORD:
+            if self._next_token in self._builtin_types:
+                self._outf.write(
+                    f"{start}<{tag}> {self._next_token} </{tag}>{end}")
+            else:
+                raise JackSyntaxError(
+                    "Next token {self._next_token} is not in set of built-in "
+                    f"types:\n ({', '.join(self._builtin_types)})")
+        elif self._next_token_type == T.IDENTIFIER:
+            self._outf.write(
+                f"{start}<{tag}> {self._next_token} </{tag}>{end}")
+        else:
+            raise JackSyntaxError(
+                f"Next token {self._next_token} is not a built-in type or "
+                "class name.")
+        self._advance_token()
+
 
     def _compile_class(self):
         self._outf.write('<class> ')
 
-        self._process_token('class',
-                            '.jack files must begin with class definition.')
-        self._process_identifier('className')
-        self._process_token('{')
+        self._process_token(
+            'class', end='\n',
+            error_message='.jack files must begin with class definition.')
+        self._process_identifier()
+        self._process_token('{', end='\n')
         self._compile_class_var_dec()
         self._compile_subroutine_dec()
-        self._process_token('}')
+        self._process_token('}', end='\n')
 
         self._outf.write('</class>\n')
 
     def _compile_class_var_dec(self):
-        pass
+        class_var_categories = ('static', 'field')
+        while self._next_token in class_var_categories:
+            self._outf.write(' <classVarDec> ')
+            self._process_token(*class_var_categories)
+            self._process_type()
+            self._process_identifier()
+            while self._next_token != ';':
+                self._process_token(',')
+                self._process_identifier()
+            self._process_token(';')
+            self._outf.write('</classVarDec>\n')
 
     def _compile_subroutine_dec(self):
-        pass
+        subroutine_categories = ('constructor', 'function', 'method')
+        while self._next_token in subroutine_categories:
+            self._outf.write(' <subroutineDec> ')
+            self._process_token(*subroutine_categories)
+            if self._next_token == 'void':
+                self._process_token('void')
+            else:
+                self._process_type()
+            self._process_identifier()
+            self._process_token('(')
+            self._compile_parameter_list()
+            self._process_token(')')
+            self._compile_subroutine_body()
+
+            self._outf.write(' </subroutineDec>\n')
+
+    def _compile_parameter_list(self):
+        self._outf.write(' <parameterList> ')
+        if self._next_token != ')':
+            self._process_type()
+            self._process_identifier()
+            while self._next_token != ')':
+                self._process_token(',')
+                self._process_type()
+                self._process_identifier()
+        self._outf.write(' </parameterList> ')
+
+    def _compile_subroutine_body(self):
+        self._outf.write(' <subroutineBody> ')
+        self._process_token('{')
+        while self._next_token == 'var':
+            self._compile_var_dec()
+        self._compile_statements()
+        self._process_token('}')
+        self._outf.write(' </subroutineBody> ')
+
+    def _compile_var_dec(self):
+        self._outf.write(' <varDec> ')
+        self._process_token('var')
+        self._process_type()
+        self._process_identifier()
+        while self._next_token != ';':
+            self._process_token(',')
+            self._process_identifier()
+        self._process_token(';')
+        self._outf.write(' </varDec> ')
+
+    def _compile_statements(self):
+        self._outf.write(' <statements> ')
+        # pick up here!
+        self._outf.write(' </statements> ')
 
 class JackAnalyzer(object):
 
