@@ -233,6 +233,9 @@ class CompilationEngine(object):
     _next_token_type = None
     _next_token = None
     _builtin_types = set(['int', 'char', 'boolean'])
+    _keyword_constants = set(['true', 'false', 'null', 'this'])
+    _unary_ops = set(['~', '-'])
+    _ops = set(['+', '-', '*', '/', '&amp;', '|', '&lt;', '&gt;', '='])
 
     def __init__(self, inf, outf, verbose=False):
         self._verbose = verbose
@@ -257,7 +260,11 @@ class CompilationEngine(object):
         elif line == '</tokens>':
             return None, None
         else:
-            open_tag, token, _ = line.split()
+            try:
+                open_tag, temp = line.split(maxsplit=1)
+                token, _ = temp.rsplit(maxsplit=1)
+            except ValueError:
+                raise ValueError(f"Failed to parse xmlT line:\n {line}")
 
             try:
                 token_type = TAG_TYPES[open_tag[1:-1]]
@@ -267,7 +274,7 @@ class CompilationEngine(object):
             return token_type, token
 
     def _process_token(self, *args, start='', end='\n', error_message=None):
-        if self._next_token in args:
+        if self._next_token in args or len(args) == 0:
             tag = TOKEN_TAGS[self._next_token_type.name]
             self._outf.write(
                 f"{start}<{tag}> {self._next_token} </{tag}>{end}")
@@ -310,15 +317,6 @@ class CompilationEngine(object):
                 f"Next token {self._next_token} is not a built-in type or "
                 "class name.")
         self._advance_token()
-
-    def _process_subroutine_call(self):
-        self._process_identifier()
-        if self._next_token == '.':
-            self._process_token('.')
-            self._process_identifier()
-        self._process_token('(')
-        self._compile_expression_list()
-        self._process_token(')')
 
     def _compile_class(self):
         self._outf.write('<class>\n')
@@ -401,12 +399,9 @@ class CompilationEngine(object):
                 self._process_token('let')
                 self._process_identifier()
                 if self._next_token == '[':
-                    raise NotImplementedError(
-                        "Array indexing support not yet available.")
-                    # add array handling
-                    # self._process_token('[')
-                    # self._compile_expression()
-                    # self._process_token(']')
+                    self._process_token('[')
+                    self._compile_expression()
+                    self._process_token(']')
                 self._process_token('=')
                 self._compile_expression()
                 self._process_token(';')
@@ -439,6 +434,8 @@ class CompilationEngine(object):
             elif self._next_token == 'do':
                 self._outf.write(' <doStatement>\n')
                 self._process_token('do')
+                # the book recommends using compile_term here, but I feel
+                # like this could let syntax errors slip through.
                 self._process_subroutine_call()
                 self._process_token(';')
                 self._outf.write(' </doStatement>\n')
@@ -457,28 +454,75 @@ class CompilationEngine(object):
 
     def _compile_expression(self):
         self._outf.write(' <expression>\n')
-        # this handles the "expressionless" CompilationEngine
         self._compile_term()
+        while self._next_token in self._ops:
+            self._process_token()
+            self._compile_term()
         self._outf.write(' </expression>\n')
 
     def _compile_expression_list(self):
+        n_expressions = 0
         self._outf.write(' <expressionList>\n')
         if self._next_token != ')':
+            n_expressions += 1
             self._compile_expression()
             while self._next_token == ',':
                 self._process_token(',')
                 self._compile_expression()
         self._outf.write(' </expressionList>\n')
+        return n_expressions
+
+    def _process_subroutine_call(self):
+        if self._next_token_type != T.IDENTIFIER:
+            raise JackSyntaxError(
+                "Invalid token type in subroutine call: "
+                f"{self._next_token_type}")
+        self._process_identifier()
+        if self._next_token == '.':
+            self._process_token('.')
+            self._process_identifier()
+        self._process_token('(')
+        _ = self._compile_expression_list()
+        self._process_token(')')
 
     def _compile_term(self):
         self._outf.write(' <term>\n')
         if self._next_token_type == T.IDENTIFIER:
             self._process_identifier()
+            if self._next_token == '[':
+                # array access
+                self._process_token('[')
+                self._compile_expression()
+                self._process_token(']')
+            elif self._next_token == '(':
+                # this.method() call
+                self._process_token('(')
+                _ = self._compile_expression_list()
+                self._process_token(')')
+            elif self._next_token == '.':
+                # not_this.method() call
+                self._process_token('.')
+                self._process_identifier()
+                self._process_token('(')
+                _ = self._compile_expression_list()
+                self._process_token(')')
+            else:
+                # simple variable access
+                pass
         elif self._next_token_type == T.KEYWORD:
-            self._process_token('true', 'false', 'null', 'this')
+            self._process_token(*self._keyword_constants)
+        elif self._next_token_type in (T.INT_CONST, T.STRING_CONST):
+            self._process_token()
+        elif self._next_token == '(':
+            self._process_token('(')
+            self._compile_expression()
+            self._process_token(')')
+        elif self._next_token in self._unary_ops:
+            self._process_token()
+            self._compile_term()
         else:
-            raise NotImplementedError(
-                f"Terms containing {self._next_token_type} not yet supported.")
+            raise JackSyntaxError(
+                f"Unexpected token while processing term: {self._next_token}")
         self._outf.write(' </term>\n')
 
 
