@@ -266,7 +266,7 @@ class CompilationEngine(object):
 
             return token_type, token
 
-    def _process_token(self, *args, start='', end=' ', error_message=None):
+    def _process_token(self, *args, start='', end='\n', error_message=None):
         if self._next_token in args:
             tag = TOKEN_TAGS[self._next_token_type.name]
             self._outf.write(
@@ -279,12 +279,12 @@ class CompilationEngine(object):
                                  f" ({', '.join(args)})")
             raise JackSyntaxError(error_message)
 
-    def _process_identifier(self, start='', end=' ', error_message=None):
+    def _process_identifier(self, start='', end='\n', error_message=None):
         if self._next_token_type != T.IDENTIFIER:
             if error_message is None:
                 error_message = \
                     ("Expected identifier but found "
-                     f"{str(self._next_token_type)}")
+                     f"{str(self._next_token_type)}: {self._next_token}")
             raise JackSyntaxError(error_message)
 
         tag = TOKEN_TAGS[self._next_token_type.name]
@@ -292,7 +292,7 @@ class CompilationEngine(object):
         self._outf.write(f"<{tag}> {self._next_token} </{tag}>{end}")
         self._advance_token()
 
-    def _process_type(self, start='', end=' '):
+    def _process_type(self, start='', end='\n'):
         tag = TOKEN_TAGS[self._next_token_type.name]
         if self._next_token_type == T.KEYWORD:
             if self._next_token in self._builtin_types:
@@ -311,10 +311,17 @@ class CompilationEngine(object):
                 "class name.")
         self._advance_token()
 
+    def _process_subroutine_call(self):
+        self._process_identifier()
+        if self._next_token == '.':
+            self._process_token('.')
+            self._process_identifier()
+        self._process_token('(')
+        self._compile_expression_list()
+        self._process_token(')')
 
     def _compile_class(self):
-        self._outf.write('<class> ')
-
+        self._outf.write('<class>\n')
         self._process_token(
             'class', end='\n',
             error_message='.jack files must begin with class definition.')
@@ -323,13 +330,12 @@ class CompilationEngine(object):
         self._compile_class_var_dec()
         self._compile_subroutine_dec()
         self._process_token('}', end='\n')
-
         self._outf.write('</class>\n')
 
     def _compile_class_var_dec(self):
         class_var_categories = ('static', 'field')
         while self._next_token in class_var_categories:
-            self._outf.write(' <classVarDec> ')
+            self._outf.write(' <classVarDec>\n')
             self._process_token(*class_var_categories)
             self._process_type()
             self._process_identifier()
@@ -342,7 +348,7 @@ class CompilationEngine(object):
     def _compile_subroutine_dec(self):
         subroutine_categories = ('constructor', 'function', 'method')
         while self._next_token in subroutine_categories:
-            self._outf.write(' <subroutineDec> ')
+            self._outf.write(' <subroutineDec>\n')
             self._process_token(*subroutine_categories)
             if self._next_token == 'void':
                 self._process_token('void')
@@ -357,7 +363,7 @@ class CompilationEngine(object):
             self._outf.write(' </subroutineDec>\n')
 
     def _compile_parameter_list(self):
-        self._outf.write(' <parameterList> ')
+        self._outf.write(' <parameterList>\n')
         if self._next_token != ')':
             self._process_type()
             self._process_identifier()
@@ -365,19 +371,19 @@ class CompilationEngine(object):
                 self._process_token(',')
                 self._process_type()
                 self._process_identifier()
-        self._outf.write(' </parameterList> ')
+        self._outf.write(' </parameterList>\n')
 
     def _compile_subroutine_body(self):
-        self._outf.write(' <subroutineBody> ')
+        self._outf.write(' <subroutineBody>\n')
         self._process_token('{')
         while self._next_token == 'var':
             self._compile_var_dec()
         self._compile_statements()
         self._process_token('}')
-        self._outf.write(' </subroutineBody> ')
+        self._outf.write(' </subroutineBody>\n')
 
     def _compile_var_dec(self):
-        self._outf.write(' <varDec> ')
+        self._outf.write(' <varDec>\n')
         self._process_token('var')
         self._process_type()
         self._process_identifier()
@@ -385,12 +391,96 @@ class CompilationEngine(object):
             self._process_token(',')
             self._process_identifier()
         self._process_token(';')
-        self._outf.write(' </varDec> ')
+        self._outf.write(' </varDec>\n')
 
     def _compile_statements(self):
-        self._outf.write(' <statements> ')
-        # pick up here!
-        self._outf.write(' </statements> ')
+        self._outf.write(' <statements>\n')
+        while self._next_token != '}':
+            if self._next_token == 'let':
+                self._outf.write(' <letStatement>\n')
+                self._process_token('let')
+                self._process_identifier()
+                if self._next_token == '[':
+                    raise NotImplementedError(
+                        "Array indexing support not yet available.")
+                    # add array handling
+                    # self._process_token('[')
+                    # self._compile_expression()
+                    # self._process_token(']')
+                self._process_token('=')
+                self._compile_expression()
+                self._process_token(';')
+                self._outf.write(' </letStatement>\n')
+            elif self._next_token == 'if':
+                self._outf.write(' <ifStatement>\n')
+                self._process_token('if')
+                self._process_token('(')
+                self._compile_expression()
+                self._process_token(')')
+                self._process_token('{')
+                self._compile_statements()
+                self._process_token('}')
+                if self._next_token == 'else':
+                    self._process_token('else')
+                    self._process_token('{')
+                    self._compile_statements()
+                    self._process_token('}')
+                self._outf.write(' </ifStatement>\n')
+            elif self._next_token == 'while':
+                self._outf.write(' <whileStatement>\n')
+                self._process_token('while')
+                self._process_token('(')
+                self._compile_expression()
+                self._process_token(')')
+                self._process_token('{')
+                self._compile_statements()
+                self._process_token('}')
+                self._outf.write(' </whileStatement>\n')
+            elif self._next_token == 'do':
+                self._outf.write(' <doStatement>\n')
+                self._process_token('do')
+                self._process_subroutine_call()
+                self._process_token(';')
+                self._outf.write(' </doStatement>\n')
+            elif self._next_token == 'return':
+                self._outf.write(' <returnStatement>\n')
+                self._process_token('return')
+                if self._next_token != ';':
+                    self._compile_expression()
+                self._process_token(';')
+                self._outf.write(' </returnStatement>\n')
+            else:
+                raise JackSyntaxError(f"Unexpected token {self._next_token} "
+                                      "while scanning for next statement "
+                                      "type.")
+        self._outf.write(' </statements>\n')
+
+    def _compile_expression(self):
+        self._outf.write(' <expression>\n')
+        # this handles the "expressionless" CompilationEngine
+        self._compile_term()
+        self._outf.write(' </expression>\n')
+
+    def _compile_expression_list(self):
+        self._outf.write(' <expressionList>\n')
+        if self._next_token != ')':
+            self._compile_expression()
+            while self._next_token == ',':
+                self._process_token(',')
+                self._compile_expression()
+        self._outf.write(' </expressionList>\n')
+
+    def _compile_term(self):
+        self._outf.write(' <term>\n')
+        if self._next_token_type == T.IDENTIFIER:
+            self._process_identifier()
+        elif self._next_token_type == T.KEYWORD:
+            self._process_token('true', 'false', 'null', 'this')
+        else:
+            raise NotImplementedError(
+                f"Terms containing {self._next_token_type} not yet supported.")
+        self._outf.write(' </term>\n')
+
 
 class JackAnalyzer(object):
 
