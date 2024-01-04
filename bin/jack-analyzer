@@ -5,6 +5,7 @@ import pathlib
 import glob
 from enum import Enum
 import tempfile
+import collections
 
 
 def _print_usage(program_name):
@@ -62,6 +63,12 @@ K = Enum('Keyword',
           'FALSE',
           'NULL',
           'THIS'])
+
+I = Enum('IdentifierKind', ['STATIC', 'FIELD', 'ARG', 'VAR'])
+
+
+class JackSyntaxError(ValueError):
+    pass
 
 
 class JackTokenizer(object):
@@ -223,8 +230,41 @@ class JackTokenizer(object):
         outf.seek(0)
 
 
-class JackSyntaxError(ValueError):
-    pass
+SymbolTableEntry = collections.namedtuple('SymbolTableEntry',
+                                          ['name', 'type', 'kind', 'index'])
+
+
+class SymbolTable(object):
+
+    def __init__(self):
+        self._table = {}
+        self._counts = {i:0 for i in I}
+
+    def define(self, name, type, kind):
+        if name in self._table:
+            raise JackSyntaxError(
+                f"Identifier `{name}` already defined as {self[name].kind} "
+                "variable.")
+
+        if kind not in I:
+            raise JackSyntaxError(f"Unknown kind of variable {kind}.")
+
+        self._table[name] = SymbolTableEntry(name=name,
+                                             type=type,
+                                             kind=kind,
+                                             index=self._counts[kind])
+        self._counts[kind] += 1
+
+    def __getitem__(self, name):
+        if name not in self._table:
+            raise JackSyntaxError(
+                f"Identifier {name} is referenced but not defined.")
+        return self._table[name]
+
+    def display(self):
+        for e in self._table.values():
+            print(f"{e.name:<10} | {str(e.kind):>25} | "
+                  f"{e.type:>10} | {e.index:>3}")
 
 
 class CompilationEngine(object):
