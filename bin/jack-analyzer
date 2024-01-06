@@ -236,7 +236,13 @@ SymbolTableEntry = collections.namedtuple('SymbolTableEntry',
 
 class SymbolTable(object):
 
+    _identifier_kinds = {'static': I.STATIC, 'field': I.FIELD,
+                         'var': I.VAR, 'arg': I.ARG}
+
     def __init__(self):
+        self.reset()
+
+    def reset(self):
         self._table = {}
         self._counts = {i:0 for i in I}
 
@@ -246,8 +252,10 @@ class SymbolTable(object):
                 f"Identifier `{name}` already defined as {self[name].kind} "
                 "variable.")
 
-        if kind not in I:
-            raise JackSyntaxError(f"Unknown kind of variable {kind}.")
+        try:
+            kind = self._identifier_kinds[kind]
+        except KeyError:
+            raise JackSyntaxError(f"Unknown kind of variable: `{kind}`.")
 
         self._table[name] = SymbolTableEntry(name=name,
                                              type=type,
@@ -256,9 +264,9 @@ class SymbolTable(object):
         self._counts[kind] += 1
 
     def __getitem__(self, name):
-        if name not in self._table:
-            raise JackSyntaxError(
-                f"Identifier {name} is referenced but not defined.")
+        # if name not in self._table:
+        #     raise JackSyntaxError(
+        #         f"Identifier {name} is referenced but not defined.")
         return self._table[name]
 
     def display(self):
@@ -281,6 +289,12 @@ class CompilationEngine(object):
         self._verbose = verbose
         self._inf = inf
         self._outf = outf
+        # The global symbol table maintains class-level scope (not sure
+        # if "global" is the most appropriate descriptor here)
+        self._global_symbol_table = SymbolTable()
+        # The local symbol table maintains subroutine-level scope
+        self._local_symbol_table = SymbolTable()
+        self._class_name = None
 
     def __call__(self):
         self._advance_token()
@@ -313,6 +327,17 @@ class CompilationEngine(object):
 
             return token_type, token
 
+    def _get_symbol_table_entry(self, name):
+        result = None
+        try:
+            result = self._local_symbol_table[name]
+        except KeyError:
+            try:
+                result = self._global_symbol_table[name]
+            except KeyError:
+                pass
+        return result
+
     def _process_token(self, *args, start='', end='\n', error_message=None):
         if self._next_token in args or len(args) == 0:
             tag = TOKEN_TAGS[self._next_token_type.name]
@@ -326,7 +351,8 @@ class CompilationEngine(object):
                                  f" ({', '.join(args)})")
             raise JackSyntaxError(error_message)
 
-    def _process_identifier(self, start='', end='\n', error_message=None):
+    def _process_identifier(self, start='', end='\n', declaration=True,
+                            error_message=None):
         if self._next_token_type != T.IDENTIFIER:
             if error_message is None:
                 error_message = \
@@ -335,8 +361,20 @@ class CompilationEngine(object):
             raise JackSyntaxError(error_message)
 
         tag = TOKEN_TAGS[self._next_token_type.name]
+        if declaration:
+            usage_entry = "declared"
+        else:
+            usage_entry = "accessed"
 
-        self._outf.write(f"<{tag}> {self._next_token} </{tag}>{end}")
+        self._outf.write(f"<{tag}> ")
+        self._outf.write(f"<name> {self._next_token} </name> ")
+        symbol_table_entry = self._get_symbol_table_entry(self._next_token)
+        if symbol_table_entry is not None:
+            self._outf.write(f"<category> {symbol_table_entry.kind} "
+                             "</category> ")
+            self._outf.write(f"<index> {symbol_table_entry.index} </index> ")
+        self._outf.write(f"<usage> {usage_entry} </usage> ")
+        self._outf.write(f"</{tag}>{end}")
         self._advance_token()
 
     def _process_type(self, start='', end='\n'):
@@ -363,6 +401,7 @@ class CompilationEngine(object):
         self._process_token(
             'class', end='\n',
             error_message='.jack files must begin with class definition.')
+        self._class_name = self._next_token
         self._process_identifier()
         self._process_token('{', end='\n')
         self._compile_class_var_dec()
@@ -373,12 +412,20 @@ class CompilationEngine(object):
     def _compile_class_var_dec(self):
         class_var_categories = ('static', 'field')
         while self._next_token in class_var_categories:
+            category = self._next_token
             self._outf.write(' <classVarDec>\n')
             self._process_token(*class_var_categories)
+            type = self._next_token
             self._process_type()
+            name = self._next_token
+            self._global_symbol_table.define(
+                name=name, type=type, kind=category)
             self._process_identifier()
             while self._next_token != ';':
                 self._process_token(',')
+                name = self._next_token
+                self._global_symbol_table.define(
+                    name=name, type=type, kind=category)
                 self._process_identifier()
             self._process_token(';')
             self._outf.write('</classVarDec>\n')
@@ -387,6 +434,9 @@ class CompilationEngine(object):
         subroutine_categories = ('constructor', 'function', 'method')
         while self._next_token in subroutine_categories:
             self._outf.write(' <subroutineDec>\n')
+            if self._next_token == 'method':
+                self._local_symbol_table.define(
+                    name='this', type=self._class_name, kind='arg')
             self._process_token(*subroutine_categories)
             if self._next_token == 'void':
                 self._process_token('void')
@@ -397,17 +447,24 @@ class CompilationEngine(object):
             self._compile_parameter_list()
             self._process_token(')')
             self._compile_subroutine_body()
-
             self._outf.write(' </subroutineDec>\n')
+            self._local_symbol_table.reset()
 
     def _compile_parameter_list(self):
         self._outf.write(' <parameterList>\n')
         if self._next_token != ')':
+            type = self._next_token
             self._process_type()
+            name = self._next_token
+            self._local_symbol_table.define(name=name, type=type, kind='arg')
             self._process_identifier()
             while self._next_token != ')':
                 self._process_token(',')
+                type = self._next_token
                 self._process_type()
+                name = self._next_token
+                self._local_symbol_table.define(
+                    name=name, type=type, kind='arg')
                 self._process_identifier()
         self._outf.write(' </parameterList>\n')
 
@@ -423,10 +480,15 @@ class CompilationEngine(object):
     def _compile_var_dec(self):
         self._outf.write(' <varDec>\n')
         self._process_token('var')
+        type = self._next_token
         self._process_type()
+        name = self._next_token
+        self._local_symbol_table.define(name=name, type=type, kind='var')
         self._process_identifier()
         while self._next_token != ';':
             self._process_token(',')
+            name = self._next_token
+            self._local_symbol_table.define(name=name, type=type, kind='var')
             self._process_identifier()
         self._process_token(';')
         self._outf.write(' </varDec>\n')
@@ -437,7 +499,7 @@ class CompilationEngine(object):
             if self._next_token == 'let':
                 self._outf.write(' <letStatement>\n')
                 self._process_token('let')
-                self._process_identifier()
+                self._process_identifier(declaration=False)
                 if self._next_token == '[':
                     self._process_token('[')
                     self._compile_expression()
@@ -517,10 +579,10 @@ class CompilationEngine(object):
             raise JackSyntaxError(
                 "Invalid token type in subroutine call: "
                 f"{self._next_token_type}")
-        self._process_identifier()
+        self._process_identifier(declaration=False)
         if self._next_token == '.':
             self._process_token('.')
-            self._process_identifier()
+            self._process_identifier(declaration=False)
         self._process_token('(')
         _ = self._compile_expression_list()
         self._process_token(')')
@@ -528,7 +590,7 @@ class CompilationEngine(object):
     def _compile_term(self):
         self._outf.write(' <term>\n')
         if self._next_token_type == T.IDENTIFIER:
-            self._process_identifier()
+            self._process_identifier(declaration=False)
             if self._next_token == '[':
                 # array access
                 self._process_token('[')
@@ -542,7 +604,7 @@ class CompilationEngine(object):
             elif self._next_token == '.':
                 # not_this.method() call
                 self._process_token('.')
-                self._process_identifier()
+                self._process_identifier(declaration=False)
                 self._process_token('(')
                 _ = self._compile_expression_list()
                 self._process_token(')')
