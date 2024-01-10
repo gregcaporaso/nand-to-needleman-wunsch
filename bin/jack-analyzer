@@ -64,8 +64,23 @@ K = Enum('Keyword',
           'NULL',
           'THIS'])
 
-I = Enum('IdentifierKind', ['STATIC', 'FIELD', 'ARG', 'VAR'])
 
+class IdentifierKind(Enum):
+    # This Enum feels like more trouble than it's worth.
+    STATIC = 'static'
+    FIELD = 'this'
+    ARG = 'argument'
+    VAR = 'local'
+
+    def __str__(self):
+        return self.value
+
+    def from_str(str):
+        _value_map = {'static': IdentifierKind.STATIC,
+                      'field': IdentifierKind.FIELD,
+                      'var': IdentifierKind.VAR,
+                      'arg': IdentifierKind.ARG}
+        return _value_map[str]
 
 class JackSyntaxError(ValueError):
     pass
@@ -236,15 +251,12 @@ SymbolTableEntry = collections.namedtuple('SymbolTableEntry',
 
 class SymbolTable(object):
 
-    _identifier_kinds = {'static': I.STATIC, 'field': I.FIELD,
-                         'var': I.VAR, 'arg': I.ARG}
-
     def __init__(self):
         self.reset()
 
     def reset(self):
         self._table = {}
-        self._counts = {i:0 for i in I}
+        self._counts = {i:0 for i in IdentifierKind}
 
     def define(self, name, type, kind):
         if name in self._table:
@@ -253,7 +265,7 @@ class SymbolTable(object):
                 "variable.")
 
         try:
-            kind = self._identifier_kinds[kind]
+            kind = IdentifierKind.from_str(kind)
         except KeyError:
             raise JackSyntaxError(f"Unknown kind of variable: `{kind}`.")
 
@@ -264,16 +276,13 @@ class SymbolTable(object):
         self._counts[kind] += 1
 
     def __getitem__(self, name):
-        # if name not in self._table:
-        #     raise JackSyntaxError(
-        #         f"Identifier {name} is referenced but not defined.")
         return self._table[name]
 
     def get_nargs(self):
-        return self._counts[I.ARG]
+        return self._counts[IdentifierKind.ARG]
 
     def get_nvars(self):
-        return self._counts[I.VAR]
+        return self._counts[IdentifierKind.VAR]
 
     def display(self):
         for e in self._table.values():
@@ -288,9 +297,12 @@ class CompilationEngine(object):
     _builtin_types = set(['int', 'char', 'boolean'])
     _keyword_constants = set(['true', 'false', 'null', 'this'])
     _unary_ops = set(['~', '-'])
+    _unary_op_map = {'~': 'not', '-': 'neg'}
     _ops = set(['+', '-', '*', '/', '&amp;', '|', '&lt;', '&gt;', '='])
     _op_map = {'+': 'add', '-': 'sub', '*': 'call Math.multiply 2',
-               '/': 'call Math.divide 2'}
+               '/': 'call Math.divide 2',
+               '&amp;': 'and', '|': 'or',
+               '&lt;': 'lt', '&gt;': 'gt', '=': 'eq'}
 
     def __init__(self, inf, outx, outv, verbose=False):
         self._verbose = verbose
@@ -303,6 +315,7 @@ class CompilationEngine(object):
         # The local symbol table maintains subroutine-level scope
         self._local_symbol_table = SymbolTable()
         self._class_name = None
+        self._label_counter = 0
 
     def __call__(self):
         self._advance_token()
@@ -345,6 +358,11 @@ class CompilationEngine(object):
             except KeyError:
                 pass
         return result
+
+    def _get_label(self):
+        label = f'L{self._label_counter}'
+        self._label_counter += 1
+        return label
 
     def _write_vm_cmd(self, command):
         self._outv.write(f"{command}\n")
@@ -520,6 +538,7 @@ class CompilationEngine(object):
             if self._next_token == 'let':
                 self._outx.write(' <letStatement>\n')
                 self._process_token('let')
+                identifier = self._next_token
                 self._process_identifier(declaration=False)
                 if self._next_token == '[':
                     self._process_token('[')
@@ -527,6 +546,8 @@ class CompilationEngine(object):
                     self._process_token(']')
                 self._process_token('=')
                 self._compile_expression()
+                ste = self._get_symbol_table_entry(identifier)
+                self._write_vm_cmd(f'pop {str(ste.kind)} {ste.index}')
                 self._process_token(';')
                 self._outx.write(' </letStatement>\n')
             elif self._next_token == 'if':
@@ -534,25 +555,39 @@ class CompilationEngine(object):
                 self._process_token('if')
                 self._process_token('(')
                 self._compile_expression()
+                self._write_vm_cmd('not')
+                else_label = self._get_label()
+                self._write_vm_cmd(f'if-goto {else_label}')
                 self._process_token(')')
                 self._process_token('{')
                 self._compile_statements()
+                post_if_label = self._get_label()
+                self._write_vm_cmd(f'goto {post_if_label}')
                 self._process_token('}')
                 if self._next_token == 'else':
                     self._process_token('else')
                     self._process_token('{')
+                    self._write_vm_cmd(f'label {else_label}')
                     self._compile_statements()
                     self._process_token('}')
+                self._write_vm_cmd(f'label {post_if_label}')
                 self._outx.write(' </ifStatement>\n')
             elif self._next_token == 'while':
                 self._outx.write(' <whileStatement>\n')
                 self._process_token('while')
+                while_start_label = self._get_label()
+                self._write_vm_cmd(f'label {while_start_label}')
                 self._process_token('(')
                 self._compile_expression()
                 self._process_token(')')
+                post_while_label = self._get_label()
+                self._write_vm_cmd('not')
+                self._write_vm_cmd(f'if-goto {post_while_label}')
                 self._process_token('{')
                 self._compile_statements()
                 self._process_token('}')
+                self._write_vm_cmd(f'goto {while_start_label}')
+                self._write_vm_cmd(f'label {post_while_label}')
                 self._outx.write(' </whileStatement>\n')
             elif self._next_token == 'do':
                 self._outx.write(' <doStatement>\n')
@@ -595,6 +630,7 @@ class CompilationEngine(object):
             n_expressions += 1
             self._compile_expression()
             while self._next_token == ',':
+                n_expressions += 1
                 self._process_token(',')
                 self._compile_expression()
         self._outx.write(' </expressionList>\n')
@@ -619,6 +655,7 @@ class CompilationEngine(object):
     def _compile_term(self):
         self._outx.write(' <term>\n')
         if self._next_token_type == T.IDENTIFIER:
+            identifier = self._next_token
             self._process_identifier(declaration=False)
             if self._next_token == '[':
                 # array access
@@ -626,22 +663,44 @@ class CompilationEngine(object):
                 self._compile_expression()
                 self._process_token(']')
             elif self._next_token == '(':
-                # this.method() call
+                # this.subroutine() call (possible to remove overlap with
+                # _process_subroutine_call?)
                 self._process_token('(')
-                _ = self._compile_expression_list()
+                nargs = self._compile_expression_list()
                 self._process_token(')')
+                # this handles functions but not methods
+                self._write_vm_cmd(
+                    f'call {self._class_name}.{identifier} {nargs}')
             elif self._next_token == '.':
-                # not_this.method() call
+                # not_this.subroutine() call (possible to remove overlap with
+                # _process_subroutine_call?)
                 self._process_token('.')
+                subroutine_identifier = self._next_token
                 self._process_identifier(declaration=False)
                 self._process_token('(')
-                _ = self._compile_expression_list()
+                nargs = self._compile_expression_list()
                 self._process_token(')')
+                # this handles functions but not methods
+                self._write_vm_cmd(
+                    f'call {identifier}.{subroutine_identifier} {nargs}')
             else:
                 # simple variable access
-                pass
+                ste = self._get_symbol_table_entry(identifier)
+                self._write_vm_cmd(
+                    f'push {str(ste.kind)} {ste.index}')
         elif self._next_token_type == T.KEYWORD:
+            keyword = self._next_token
             self._process_token(*self._keyword_constants)
+            if keyword in ('null', 'false'):
+                self._write_vm_cmd('push constant 0')
+            elif keyword == 'true':
+                self._write_vm_cmd('push constant 1')
+                self._write_vm_cmd('neg')
+            elif keyword == 'this':
+                self._write_vm_cmd('push pointer 0')
+            else:
+                # this shouldn't be reachable, just here for readability
+                raise JackSyntaxError(f'Unknown keyword constant: {keyword}')
         elif self._next_token_type == T.INT_CONST:
             self._write_vm_cmd(f'push constant {self._next_token}')
             self._process_token()
@@ -652,8 +711,10 @@ class CompilationEngine(object):
             self._compile_expression()
             self._process_token(')')
         elif self._next_token in self._unary_ops:
+            unary_op = self._next_token
             self._process_token()
             self._compile_term()
+            self._write_vm_cmd(f'{self._unary_op_map[unary_op]}')
         else:
             raise JackSyntaxError(
                 f"Unexpected token while processing term: {self._next_token}")
