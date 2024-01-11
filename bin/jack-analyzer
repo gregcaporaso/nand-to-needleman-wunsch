@@ -473,14 +473,14 @@ class CompilationEngine(object):
                 self._process_token('void')
             else:
                 self._process_type()
-            function_reference = f"{self._class_name}.{self._next_token}"
+            subroutine_reference = f"{self._class_name}.{self._next_token}"
             if self._verbose:
-                print(f" {function_reference}")
+                print(f" {subroutine_reference}")
             self._process_identifier()
             self._process_token('(')
             self._compile_parameter_list()
             self._process_token(')')
-            self._compile_subroutine_body(function_reference, is_method)
+            self._compile_subroutine_body(subroutine_reference, is_method)
             self._outx.write(' </subroutineDec>\n')
             self._local_symbol_table.reset()
 
@@ -502,12 +502,12 @@ class CompilationEngine(object):
                 self._process_identifier()
         self._outx.write(' </parameterList>\n')
 
-    def _compile_subroutine_body(self, function_reference, is_method):
+    def _compile_subroutine_body(self, subroutine_reference, is_method):
         self._outx.write(' <subroutineBody>\n')
         self._process_token('{')
         while self._next_token == 'var':
             self._compile_var_dec()
-        self._write_vm_cmd(f'function {function_reference} '
+        self._write_vm_cmd(f'function {subroutine_reference} '
                          f'{self._local_symbol_table.get_nvars()}')
         if is_method:
             self._write_vm_cmd(f'push argument 0')
@@ -594,7 +594,13 @@ class CompilationEngine(object):
                 self._process_token('do')
                 # the book recommends using compile_term here, but I feel
                 # like this could let syntax errors slip through.
-                self._process_subroutine_call()
+                if self._next_token_type != T.IDENTIFIER:
+                    raise JackSyntaxError(
+                        "Invalid token type in subroutine call: "
+                        f"{self._next_token_type}")
+                subroutine_reference = self._next_token
+                self._process_identifier(declaration=False)
+                self._process_subroutine_call(subroutine_reference)
                 self._process_token(';')
                 self._outx.write(' </doStatement>\n')
             elif self._next_token == 'return':
@@ -636,20 +642,21 @@ class CompilationEngine(object):
         self._outx.write(' </expressionList>\n')
         return n_expressions
 
-    def _process_subroutine_call(self):
-        if self._next_token_type != T.IDENTIFIER:
-            raise JackSyntaxError(
-                "Invalid token type in subroutine call: "
-                f"{self._next_token_type}")
-        subroutine_reference = self._next_token
-        self._process_identifier(declaration=False)
+    def _process_subroutine_call(self, subroutine_reference):
         if self._next_token == '.':
             self._process_token('.')
+            if self._next_token_type != T.IDENTIFIER:
+                raise JackSyntaxError(
+                    f"Invalid token type in subroutine {subroutine_reference} "
+                    f"call: {self._next_token_type}")
             subroutine_reference = f"{subroutine_reference}.{self._next_token}"
             self._process_identifier(declaration=False)
+        else:
+            subroutine_reference = f"{self._class_name}.{subroutine_reference}"
         self._process_token('(')
         nargs = self._compile_expression_list()
         self._process_token(')')
+        # this handles functions only (not methods or constructors) right now
         self._write_vm_cmd(f"call {subroutine_reference} {nargs}")
 
     def _compile_term(self):
@@ -662,27 +669,8 @@ class CompilationEngine(object):
                 self._process_token('[')
                 self._compile_expression()
                 self._process_token(']')
-            elif self._next_token == '(':
-                # this.subroutine() call (possible to remove overlap with
-                # _process_subroutine_call?)
-                self._process_token('(')
-                nargs = self._compile_expression_list()
-                self._process_token(')')
-                # this handles functions but not methods
-                self._write_vm_cmd(
-                    f'call {self._class_name}.{identifier} {nargs}')
-            elif self._next_token == '.':
-                # not_this.subroutine() call (possible to remove overlap with
-                # _process_subroutine_call?)
-                self._process_token('.')
-                subroutine_identifier = self._next_token
-                self._process_identifier(declaration=False)
-                self._process_token('(')
-                nargs = self._compile_expression_list()
-                self._process_token(')')
-                # this handles functions but not methods
-                self._write_vm_cmd(
-                    f'call {identifier}.{subroutine_identifier} {nargs}')
+            elif self._next_token == '(' or self._next_token == '.':
+                self._process_subroutine_call(identifier)
             else:
                 # simple variable access
                 ste = self._get_symbol_table_entry(identifier)
