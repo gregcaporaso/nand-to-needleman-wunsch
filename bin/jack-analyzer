@@ -284,6 +284,12 @@ class SymbolTable(object):
     def get_nvars(self):
         return self._counts[IdentifierKind.VAR]
 
+    def get_nfields(self):
+        return self._counts[IdentifierKind.FIELD]
+
+    def get_nstatics(self):
+        return self._counts[IdentifierKind.STATIC]
+
     def display(self):
         for e in self._table.values():
             print(f"{e.name:<10} | {str(e.kind):>25} | "
@@ -460,11 +466,11 @@ class CompilationEngine(object):
             self._outx.write('</classVarDec>\n')
 
     def _compile_subroutine_dec(self):
-        is_method = False
         subroutine_categories = ('constructor', 'function', 'method')
         while self._next_token in subroutine_categories:
+            subroutine_kind = self._next_token
             self._outx.write(' <subroutineDec>\n')
-            if self._next_token == 'method':
+            if subroutine_kind == 'method':
                 is_method = True
                 self._local_symbol_table.define(
                     name='this', type=self._class_name, kind='arg')
@@ -480,7 +486,7 @@ class CompilationEngine(object):
             self._process_token('(')
             self._compile_parameter_list()
             self._process_token(')')
-            self._compile_subroutine_body(subroutine_reference, is_method)
+            self._compile_subroutine_body(subroutine_reference, subroutine_kind)
             self._outx.write(' </subroutineDec>\n')
             self._local_symbol_table.reset()
 
@@ -502,16 +508,21 @@ class CompilationEngine(object):
                 self._process_identifier()
         self._outx.write(' </parameterList>\n')
 
-    def _compile_subroutine_body(self, subroutine_reference, is_method):
+    def _compile_subroutine_body(self, subroutine_reference, subroutine_kind):
         self._outx.write(' <subroutineBody>\n')
         self._process_token('{')
         while self._next_token == 'var':
             self._compile_var_dec()
         self._write_vm_cmd(f'function {subroutine_reference} '
                          f'{self._local_symbol_table.get_nvars()}')
-        if is_method:
+        if subroutine_kind == 'method':
             self._write_vm_cmd(f'push argument 0')
             self._write_vm_cmd(f'pop pointer 0')
+        elif subroutine_kind == 'constructor':
+            self._write_vm_cmd(
+                f'push constant {self._global_symbol_table.get_nfields()}')
+            self._write_vm_cmd('call Memory.alloc 1')
+            self._write_vm_cmd('pop pointer 0')
         self._compile_statements()
         self._process_token('}')
         self._outx.write(' </subroutineBody>\n')
@@ -556,8 +567,8 @@ class CompilationEngine(object):
                 self._process_token('(')
                 self._compile_expression()
                 self._write_vm_cmd('not')
-                else_label = self._get_label()
-                self._write_vm_cmd(f'if-goto {else_label}')
+                if_false_label = self._get_label()
+                self._write_vm_cmd(f'if-goto {if_false_label}')
                 self._process_token(')')
                 self._process_token('{')
                 self._compile_statements()
@@ -567,9 +578,11 @@ class CompilationEngine(object):
                 if self._next_token == 'else':
                     self._process_token('else')
                     self._process_token('{')
-                    self._write_vm_cmd(f'label {else_label}')
+                    self._write_vm_cmd(f'label {if_false_label}')
                     self._compile_statements()
                     self._process_token('}')
+                else:
+                    self._write_vm_cmd(f'label {if_false_label}')
                 self._write_vm_cmd(f'label {post_if_label}')
                 self._outx.write(' </ifStatement>\n')
             elif self._next_token == 'while':
@@ -600,8 +613,9 @@ class CompilationEngine(object):
                         f"{self._next_token_type}")
                 subroutine_reference = self._next_token
                 self._process_identifier(declaration=False)
-                self._process_subroutine_call(subroutine_reference)
+                self._compile_subroutine_call(subroutine_reference)
                 self._process_token(';')
+                self._write_vm_cmd('pop temp 0')
                 self._outx.write(' </doStatement>\n')
             elif self._next_token == 'return':
                 self._outx.write(' <returnStatement>\n')
@@ -642,21 +656,40 @@ class CompilationEngine(object):
         self._outx.write(' </expressionList>\n')
         return n_expressions
 
-    def _process_subroutine_call(self, subroutine_reference):
-        if self._next_token == '.':
+    def _compile_subroutine_call(self, subroutine_reference):
+        nargs = 0
+        ste = self._get_symbol_table_entry(subroutine_reference)
+        if ste is not None:
+            # varName.methodName(exp1, exp2, ...)
             self._process_token('.')
             if self._next_token_type != T.IDENTIFIER:
                 raise JackSyntaxError(
-                    f"Invalid token type in subroutine {subroutine_reference} "
-                    f"call: {self._next_token_type}")
+                    f"Invalid token type ({self._next_token_type}) in method "
+                    f"call on symbol {subroutine_reference}.")
+
+            self._write_vm_cmd(f'push {str(ste.kind)} {ste.index}')
+            nargs += 1
+            subroutine_reference = f"{ste.type}.{self._next_token}"
+            self._process_token()
+        elif self._next_token == '(':
+            # methodName(exp1, exp2, ...)
+            self._write_vm_cmd('push pointer 0')
+            nargs += 1
+            subroutine_reference = f"{self._class_name}.{subroutine_reference}"
+        else:
+            # className.functionName(exp1, exp2, ...)
+            # className.constructorName(exp1, exp2, ...)
+            self._process_token('.')
+            if self._next_token_type != T.IDENTIFIER:
+                raise JackSyntaxError(
+                    f"Invalid token type ({self._next_token_type}) in call to "
+                    f"{subroutine_reference} constructor or function.")
             subroutine_reference = f"{subroutine_reference}.{self._next_token}"
             self._process_identifier(declaration=False)
-        else:
-            subroutine_reference = f"{self._class_name}.{subroutine_reference}"
+
         self._process_token('(')
-        nargs = self._compile_expression_list()
+        nargs += self._compile_expression_list()
         self._process_token(')')
-        # this handles functions only (not methods or constructors) right now
         self._write_vm_cmd(f"call {subroutine_reference} {nargs}")
 
     def _compile_term(self):
@@ -670,7 +703,7 @@ class CompilationEngine(object):
                 self._compile_expression()
                 self._process_token(']')
             elif self._next_token == '(' or self._next_token == '.':
-                self._process_subroutine_call(identifier)
+                self._compile_subroutine_call(identifier)
             else:
                 # simple variable access
                 ste = self._get_symbol_table_entry(identifier)
