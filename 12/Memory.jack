@@ -10,12 +10,19 @@
  */
 class Memory {
     static Array ram;
-    static int free;
+    static int heapBase, heapSize, freeList;
 
     /** Initializes the class. */
     function void init() {
         let ram = 0;
-        let free = 2048;
+        let heapBase = 2048;
+        // the following heapSize ends the heap at the start of the
+        // screen's memory map
+        let heapSize = 14335;
+
+        let freeList = heapBase;
+        let ram[freeList] = heapSize;
+        let ram[freeList + 1] = 0;
         return;
     }
 
@@ -33,16 +40,70 @@ class Memory {
     /** Finds an available RAM block of the given size and returns
      *  a reference to its base address. */
     function int alloc(int size) {
-        var int block;
-        let block = free;
-        let free = block + size;
-        return block;
+        var int blockSize, currentFree, previousFree, remainingSize, block;
+
+        let blockSize = size + 1;
+        // start of the linked list
+        let currentFree = freeList;
+        let previousFree = 0;
+        let block = 0;
+
+        while (~(currentFree = 0)) {
+            if (~(ram[currentFree] < blockSize)) {
+                let remainingSize = ram[currentFree] - blockSize;
+
+                if (remainingSize = 0) {
+                    // redirect the pointer to this entry to the pointer to
+                    // the next entry - i.e., remove current entry from the
+                    // free list
+                    if (previousFree = 0) {
+                        // this is the first entry, so adjust the pointer to
+                        // the start of the list
+                        let freeList = ram[currentFree + 1];
+                    } else {
+                        let ram[previousFree + 1] = ram[currentFree + 1];
+                    }
+                } else {
+                    // redirect the pointer to this entry to the start of a
+                    // reduce size available block
+                    if (previousFree = 0) {
+                        // this is the first entry, so adjust the pointer to
+                        // the start of the list
+                        let freeList = currentFree + blockSize;
+                    } else {
+                        let ram[previousFree + 1] = currentFree + blockSize;
+                    }
+                    // reduce the remaining size
+                    let ram[currentFree + blockSize] = remainingSize;
+                    let ram[currentFree + blockSize + 1] = ram[currentFree + 1];
+                }
+                let block = currentFree;
+                let ram[block] = blockSize;
+                return block;
+            } else {
+                let previousFree = currentFree;
+                let currentFree = ram[currentFree + 1];
+            }
+        }
+
+        // a large enough memory block was not found (i.e., block = 0)
+        do Sys.error(42);
+        return -1;
     }
 
     /** De-allocates the given object (cast as an array) by making
      *  it available for future allocations. */
     function void deAlloc(Array o) {
-        do Sys.wait(0);
+        // this implements the first available allocation algorithm,
+        // though slightly modified to put the deAlloc'ed block at the
+        // beginning of the freeList (so alloc will preferentially reuse
+        // deAlloc'ed blocks).
+        // should be possible to implement best-fit by adding blocks back
+        // to the free list just before the first free block that has a larger
+        // size than the block being deAlloc'ed
+        // o[0] is already the size
+        let o[1] = freeList;
+        let freeList = o;
         return;
     }
 }
