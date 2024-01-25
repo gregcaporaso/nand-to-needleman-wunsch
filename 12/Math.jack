@@ -83,7 +83,22 @@ class Math {
      *  the Jack expressions x*y and multiply(x,y) return the same value.
      */
     function int multiply(int x, int y) {
+        var Array yb;
+        var int i, shiftedx, result;
 
+        let yb = Math.bitArray(y);
+        let i = 0;
+        let shiftedx = x;
+        let result = 0;
+
+        while (i < 16) {
+            if (yb[i]) {
+                let result = result + shiftedx;
+            }
+            let shiftedx = shiftedx + shiftedx;
+            let i = i + 1;
+        }
+        return sum;
     }
 
     /** Returns the integer part of x/y.
