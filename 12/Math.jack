@@ -98,7 +98,7 @@ class Math {
             let shiftedx = shiftedx + shiftedx;
             let i = i + 1;
         }
-        return sum;
+        return result;
     }
 
     /** Returns the integer part of x/y.
@@ -107,6 +107,46 @@ class Math {
      *  the Jack expressions x/y and divide(x,y) return the same value.
      */
     function int divide(int x, int y) {
+        // I found this discussion of the derivation of this function
+        //  extremely helpful: https://bit.ly/3UmEdFL
+        var int q;
+        var boolean negate;
+
+        let negate = false;
+        if ((x < 0) | (y < 0)) {
+            if ((x < 0) & (y < 0)) {
+                let negate = false;
+            } else {
+                let negate = true;
+            }
+            let x = Math.abs(x);
+            let y = Math.abs(y);
+        }
+
+
+        if (y > x) {
+            let q = 0;
+            return q;
+        }
+
+        // check if y*2 overflows
+        if ((y + y) < 0) {
+            do Sys.error(21);
+        }
+
+        let q = Math.divide(x, y + y);
+
+        if (x - (q * (y + y)) < y) {
+            let q = q + q;
+        } else {
+            let q = q + q + 1;
+        }
+
+        if (negate) {
+            let q = -q;
+        }
+
+        return q;
     }
 
     /** Returns the integer part of the square root of x. */
