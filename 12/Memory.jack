@@ -87,7 +87,7 @@ class Memory {
         }
 
         // a large enough memory block was not found (i.e., block = 0)
-        do Sys.error(42);
+        do Sys.error(22);
         return -1;
     }
 

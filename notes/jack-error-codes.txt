@@ -28,3 +28,4 @@ My additions:
 Code Method/Function       Description
 ---- ---------------       -----------------------------------------------
 21   Math.divide           Overflow in y
+22   Memory.alloc          A large enough memory block was not found
