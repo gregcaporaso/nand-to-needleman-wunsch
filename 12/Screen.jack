@@ -1,0 +1,103 @@
+// This file is part of www.nand2tetris.org
+// and the book "The Elements of Computing Systems"
+// by Nisan and Schocken, MIT Press.
+// File name: projects/12/Screen.jack
+
+/**
+ * A library of functions for displaying graphics on the screen.
+ * The Hack physical screen consists of 256 rows (indexed 0..255, top to bottom)
+ * of 512 pixels each (indexed 0..511, left to right). The top left pixel on
+ * the screen is indexed (0,0).
+ */
+class Screen {
+    static boolean currentColor;
+    static Array zerosExcept, onesExcept;
+    static int memMapBase, nRows, nCols, bitWidth;
+
+    /** Initializes the Screen. */
+    function void init() {
+        let currentColor = false;
+        let memMapBase = 16384;
+        let nCols = 511;
+        let nRows = 255;
+        let bitWidth = 16;
+
+        let zerosExcept = Array.new(15);
+        let zerosExcept[0] = 1;
+        let zerosExcept[1] = 2;
+        let zerosExcept[2] = 4;
+        let zerosExcept[3] = 8;
+        let zerosExcept[4] = 16;
+        let zerosExcept[5] = 32;
+        let zerosExcept[6] = 64;
+        let zerosExcept[7] = 128;
+        let zerosExcept[8] = 256;
+        let zerosExcept[9] = 512;
+        let zerosExcept[10] = 1024;
+        let zerosExcept[11] = 2048;
+        let zerosExcept[12] = 4096;
+        let zerosExcept[13] = 8192;
+        let zerosExcept[14] = 16384;
+        let zerosExcept[15] = -32768;
+
+        let onesExcept = Array.new(15);
+        let onesExcept[0] = -2;
+        let onesExcept[1] = -3;
+        let onesExcept[2] = -5;
+        let onesExcept[3] = -9;
+        let onesExcept[4] = -17;
+        let onesExcept[5] = -33;
+        let onesExcept[6] = -65;
+        let onesExcept[7] = -129;
+        let onesExcept[8] = -257;
+        let onesExcept[9] = -513;
+        let onesExcept[10] = -1025;
+        let onesExcept[11] = -2049;
+        let onesExcept[12] = -4097;
+        let onesExcept[13] = -8193;
+        let onesExcept[14] = -16385;
+        let onesExcept[15] = 32767;
+    }
+
+    /** Erases the entire screen. */
+    function void clearScreen() {
+    }
+
+    /** Sets the current color, to be used for all subsequent drawXXX commands.
+     *  Black is represented by true, white by false. */
+    function void setColor(boolean b) {
+        let currentColor = b;
+    }
+
+    /** Draws the (x,y) pixel, using the current color. */
+    function void drawPixel(int x, int y) {
+        var int wordAddress, bitN, val;
+
+        let wordAddress = memMapBase + (x * 32) + (y / 16);
+        let val = Memory.peek(wordAddress);
+        // y % bitWidth
+        let bitN = y - (bitWidth * (y / bitWidth));
+        // modify val applying a bitwise operation
+        if (currentColor) {
+            // | against all zeros (ie., identity function) except a 1 at bitN
+            let val = val | zerosExcept[bitN];
+        } else {
+            // & against all ones (ie., identity function) except a 0 at bitN
+            let val = val & onesExcept[bitN];
+        }
+        do Memory.poke(wordAddress, val);
+    }
+
+    /** Draws a line from pixel (x1,y1) to pixel (x2,y2), using the current color. */
+    function void drawLine(int x1, int y1, int x2, int y2) {
+    }
+
+    /** Draws a filled rectangle whose top left corner is (x1, y1)
+     * and bottom right corner is (x2,y2), using the current color. */
+    function void drawRectangle(int x1, int y1, int x2, int y2) {
+    }
+
+    /** Draws a filled circle of radius r<=181 around (x,y), using the current color. */
+    function void drawCircle(int x, int y, int r) {
+    }
+}
