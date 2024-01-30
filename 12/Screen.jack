@@ -22,24 +22,6 @@ class Screen {
         let nRows = 255;
         let bitWidth = 16;
 
-        let zerosExcept = Array.new(15);
-        let zerosExcept[0] = 1;
-        let zerosExcept[1] = 2;
-        let zerosExcept[2] = 4;
-        let zerosExcept[3] = 8;
-        let zerosExcept[4] = 16;
-        let zerosExcept[5] = 32;
-        let zerosExcept[6] = 64;
-        let zerosExcept[7] = 128;
-        let zerosExcept[8] = 256;
-        let zerosExcept[9] = 512;
-        let zerosExcept[10] = 1024;
-        let zerosExcept[11] = 2048;
-        let zerosExcept[12] = 4096;
-        let zerosExcept[13] = 8192;
-        let zerosExcept[14] = 16384;
-        let zerosExcept[15] = -32768;
-
         let onesExcept = Array.new(15);
         let onesExcept[0] = -2;
         let onesExcept[1] = -3;
@@ -57,26 +39,53 @@ class Screen {
         let onesExcept[13] = -8193;
         let onesExcept[14] = -16385;
         let onesExcept[15] = 32767;
+
+        let zerosExcept = Array.new(15);
+        let zerosExcept[0] = 1;
+        let zerosExcept[1] = 2;
+        let zerosExcept[2] = 4;
+        let zerosExcept[3] = 8;
+        let zerosExcept[4] = 16;
+        let zerosExcept[5] = 32;
+        let zerosExcept[6] = 64;
+        let zerosExcept[7] = 128;
+        let zerosExcept[8] = 256;
+        let zerosExcept[9] = 512;
+        let zerosExcept[10] = 1024;
+        let zerosExcept[11] = 2048;
+        let zerosExcept[12] = 4096;
+        let zerosExcept[13] = 8192;
+        let zerosExcept[14] = 16384;
+        // since - is a unary operator, I can't actually directly set the
+        // value to -32768, because the integer component is too large. so...
+        let zerosExcept[15] = -32767 - 1;
+
+        return;
     }
 
     /** Erases the entire screen. */
     function void clearScreen() {
+        return;
     }
 
     /** Sets the current color, to be used for all subsequent drawXXX commands.
      *  Black is represented by true, white by false. */
     function void setColor(boolean b) {
         let currentColor = b;
+        return;
     }
 
     /** Draws the (x,y) pixel, using the current color. */
     function void drawPixel(int x, int y) {
         var int wordAddress, bitN, val;
+        if ((x < 0) | (x > (nCols + 1)) | (y < 0) | (y > (nRows + 1))){
+            do Sys.error(7);
+        }
 
-        let wordAddress = memMapBase + (x * 32) + (y / 16);
+        let wordAddress = memMapBase + (x / 16) + (y * 32);
         let val = Memory.peek(wordAddress);
-        // y % bitWidth
-        let bitN = y - (bitWidth * (y / bitWidth));
+        // x % bitWidth
+        let bitN = x - (bitWidth * (x / bitWidth));
         // modify val applying a bitwise operation
         if (currentColor) {
             // | against all zeros (ie., identity function) except a 1 at bitN
@@ -86,18 +95,96 @@ class Screen {
             let val = val & onesExcept[bitN];
         }
         do Memory.poke(wordAddress, val);
+
+        return;
     }
 
     /** Draws a line from pixel (x1,y1) to pixel (x2,y2), using the current color. */
     function void drawLine(int x1, int y1, int x2, int y2) {
+        var int a, b, dx, dy, diff, temp;
+
+        // sort (x1, x2) and (y1, y2)
+        let temp = Math.min(x1, x2);
+        let x2 = Math.max(x1, x2);
+        let x1 = temp;
+
+        let temp = Math.min(y1, y2);
+        let y2 = Math.max(y1, y2);
+        let y1 = temp;
+
+        if ((x1 < 0) | (x2 > (nCols - 1)) | (y1 < 0) | (y2 > (nRows - 1))) {
+            do Sys.error(8);
+        }
+
+        let dx = x2 - x1;
+        let dy = y2 - y1;
+
+        if (dx = 0) {
+            // vertical line
+            while (y1 < y2) {
+                do Screen.drawPixel(x1, y1);
+                let y1 = y1 + 1;
+            }
+            return;
+        }
+
+        if (dy = 0) {
+            // horizontal line
+            while (x1 < x2) {
+                do Screen.drawPixel(x1, y1);
+                let x1 = x1 + 1;
+            }
+            return;
+        }
+
+        let a = 0;
+        let b = 0;
+        let diff = 0;
+
+        while (((a < dx) | (a = dx)) & ((b < dy) | (b = dy))) {
+            do Screen.drawPixel(x1 + a, y1 + b);
+            if (diff < 0) {
+                let a = a + 1;
+                let diff = diff + dy;
+            } else {
+                let b = b + 1;
+                let diff = diff - dx;
+            }
+        }
+        return;
+
     }
 
     /** Draws a filled rectangle whose top left corner is (x1, y1)
      * and bottom right corner is (x2,y2), using the current color. */
     function void drawRectangle(int x1, int y1, int x2, int y2) {
+        var int currX, currY, temp;
+
+        // sort (x1, x2) and (y1, y2)
+        let temp = Math.min(x1, x2);
+        let x2 = Math.max(x1, x2);
+        let x1 = temp;
+
+        let temp = Math.min(y1, y2);
+        let y2 = Math.max(y1, y2);
+        let y1 = temp;
+
+        let currX = x1;
+        let currY = y1;
+
+        while (currX < x2) {
+            while (currY < y2) {
+                do Screen.drawPixel(currX, currY);
+                let currY = currY + 1;
+            }
+            let currY = y1;
+            let currX = currX + 1;
+        }
+        return;
     }
 
     /** Draws a filled circle of radius r<=181 around (x,y), using the current color. */
     function void drawCircle(int x, int y, int r) {
+        return;
     }
 }
