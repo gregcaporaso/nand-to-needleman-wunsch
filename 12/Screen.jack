@@ -12,35 +12,20 @@
 class Screen {
     static boolean currentColor;
     static Array zerosExcept, onesExcept;
-    static int memMapBase, nRows, nCols, bitWidth;
+    static int memMapStart, memMapEnd, nRows, nCols, bitWidth;
 
     /** Initializes the Screen. */
     function void init() {
-        let currentColor = false;
-        let memMapBase = 16384;
+        let currentColor = true;
         let nCols = 511;
         let nRows = 255;
         let bitWidth = 16;
+        let memMapStart = 16384;
+        let memMapEnd = memMapStart + (nRows * ((nCols + 1) / bitWidth));
 
         let onesExcept = Array.new(15);
-        let onesExcept[0] = -2;
-        let onesExcept[1] = -3;
-        let onesExcept[2] = -5;
-        let onesExcept[3] = -9;
-        let onesExcept[4] = -17;
-        let onesExcept[5] = -33;
-        let onesExcept[6] = -65;
-        let onesExcept[7] = -129;
-        let onesExcept[8] = -257;
-        let onesExcept[9] = -513;
-        let onesExcept[10] = -1025;
-        let onesExcept[11] = -2049;
-        let onesExcept[12] = -4097;
-        let onesExcept[13] = -8193;
-        let onesExcept[14] = -16385;
-        let onesExcept[15] = 32767;
-
         let zerosExcept = Array.new(15);
+
         let zerosExcept[0] = 1;
         let zerosExcept[1] = 2;
         let zerosExcept[2] = 4;
@@ -60,11 +45,34 @@ class Screen {
         // value to -32768, because the integer component is too large. so...
         let zerosExcept[15] = -32767 - 1;
 
+        let onesExcept[0] = ~zerosExcept[0];
+        let onesExcept[1] = ~zerosExcept[1];
+        let onesExcept[2] = ~zerosExcept[2];
+        let onesExcept[3] = ~zerosExcept[3];
+        let onesExcept[4] = ~zerosExcept[4];
+        let onesExcept[5] = ~zerosExcept[5];
+        let onesExcept[6] = ~zerosExcept[6];
+        let onesExcept[7] = ~zerosExcept[7];
+        let onesExcept[8] = ~zerosExcept[8];
+        let onesExcept[9] = ~zerosExcept[9];
+        let onesExcept[10] = ~zerosExcept[10];
+        let onesExcept[11] = ~zerosExcept[11];
+        let onesExcept[12] = ~zerosExcept[12];
+        let onesExcept[13] = ~zerosExcept[13];
+        let onesExcept[14] = ~zerosExcept[14];
+        let onesExcept[15] = ~zerosExcept[15];
+
         return;
     }
 
     /** Erases the entire screen. */
     function void clearScreen() {
+        var int i;
+        let i = memMapStart;
+        while (i < memMapEnd) {
+            do Memory.poke(i, 0);
+            let i = i + 1;
+        }
         return;
     }
 
@@ -78,11 +86,11 @@ class Screen {
     /** Draws the (x,y) pixel, using the current color. */
     function void drawPixel(int x, int y) {
         var int wordAddress, bitN, val;
-        if ((x < 0) | (x > (nCols + 1)) | (y < 0) | (y > (nRows + 1))){
+        if ((x < 0) | (x > nCols) | (y < 0) | (y > nRows)){
             do Sys.error(7);
         }
 
-        let wordAddress = memMapBase + (x / 16) + (y * 32);
+        let wordAddress = memMapStart + (x / 16) + (y * 32);
         let val = Memory.peek(wordAddress);
         // x % bitWidth
         let bitN = x - (bitWidth * (x / bitWidth));
@@ -91,6 +99,7 @@ class Screen {
             // | against all zeros (ie., identity function) except a 1 at bitN
             let val = val | zerosExcept[bitN];
         } else {
+            // TODO: Something is broken with my logic or my array here
             // & against all ones (ie., identity function) except a 0 at bitN
             let val = val & onesExcept[bitN];
         }
@@ -103,24 +112,18 @@ class Screen {
     function void drawLine(int x1, int y1, int x2, int y2) {
         var int a, b, dx, dy, diff, temp;
 
-        // sort (x1, x2) and (y1, y2)
-        let temp = Math.min(x1, x2);
-        let x2 = Math.max(x1, x2);
-        let x1 = temp;
-
-        let temp = Math.min(y1, y2);
-        let y2 = Math.max(y1, y2);
-        let y1 = temp;
-
-        if ((x1 < 0) | (x2 > (nCols - 1)) | (y1 < 0) | (y2 > (nRows - 1))) {
+        if ((x1 < 0) | (x1 > nCols) | (y1 < 0) | (y1 > nRows) |
+            (x2 < 0) | (x2 > nCols) | (y2 < 0) | (y2 > nRows)) {
             do Sys.error(8);
         }
 
-        let dx = x2 - x1;
-        let dy = y2 - y1;
-
-        if (dx = 0) {
+        if (x1 = x2) {
             // vertical line
+            if (y2 < y1) {
+                let temp = y1;
+                let y1 = y2;
+                let y2 = temp;
+            }
             while (y1 < y2) {
                 do Screen.drawPixel(x1, y1);
                 let y1 = y1 + 1;
@@ -128,8 +131,13 @@ class Screen {
             return;
         }
 
-        if (dy = 0) {
+        if (y1 = y2) {
             // horizontal line
+            if (x2 < x1) {
+                let temp = x1;
+                let x1 = x2;
+                let x2 = temp;
+            }
             while (x1 < x2) {
                 do Screen.drawPixel(x1, y1);
                 let x1 = x1 + 1;
@@ -137,18 +145,51 @@ class Screen {
             return;
         }
 
+        if (x2 < x1) {
+            let temp = x1;
+            let x1 = x2;
+            let x2 = temp;
+            let temp = y1;
+            let y1 = y2;
+            let y2 = temp;
+        }
+
         let a = 0;
         let b = 0;
         let diff = 0;
+        // because i sorted these on x values, and handled dx = 0 above,
+        // dx will always be > 1 here
+        let dx = x2 - x1;
+        // if dy is negative, the slope of the line is negative
+        let dy = y2 - y1;
 
-        while (((a < dx) | (a = dx)) & ((b < dy) | (b = dy))) {
-            do Screen.drawPixel(x1 + a, y1 + b);
-            if (diff < 0) {
-                let a = a + 1;
-                let diff = diff + dy;
-            } else {
-                let b = b + 1;
-                let diff = diff - dx;
+        if (dy > 1) {
+            while (((a < dx) | (a = dx)) &
+                   ((b < dy) | (b = dy))) {
+                do Screen.drawPixel(x1 + a, y1 + b);
+                if (diff < 0) {
+                    let a = a + 1;
+                    let diff = diff + dy;
+                } else {
+                    let b = b + 1;
+                    let diff = diff - dx;
+                }
+            }
+        } else {
+            // negate dy for accounting purposes,
+            // and subtract b from y in each iteration (rather than adding)
+            // to account for the negative slope
+            let dy = -dy;
+            while (((a < dx) | (a = dx)) &
+                   ((b < dy) | (b = dy))) {
+                do Screen.drawPixel(x1 + a, y1 - b);
+                if (diff < 0) {
+                    let a = a + 1;
+                    let diff = diff + dy;
+                } else {
+                    let b = b + 1;
+                    let diff = diff - dx;
+                }
             }
         }
         return;
@@ -158,33 +199,45 @@ class Screen {
     /** Draws a filled rectangle whose top left corner is (x1, y1)
      * and bottom right corner is (x2,y2), using the current color. */
     function void drawRectangle(int x1, int y1, int x2, int y2) {
-        var int currX, currY, temp;
+        // TODO: Optimize by setting full words when possible, rather than
+        // individual bits.
+        var int currY;
 
-        // sort (x1, x2) and (y1, y2)
-        let temp = Math.min(x1, x2);
-        let x2 = Math.max(x1, x2);
-        let x1 = temp;
+        if ((x1 > x2) | (y1 > y2) |
+            (x1 < 0) | (y1 < 0) | (x2 > nCols) | (y2 > nRows)) {
+            do Sys.error(9);
+        }
 
-        let temp = Math.min(y1, y2);
-        let y2 = Math.max(y1, y2);
-        let y1 = temp;
-
-        let currX = x1;
         let currY = y1;
-
-        while (currX < x2) {
+        while (x1 < x2) {
             while (currY < y2) {
-                do Screen.drawPixel(currX, currY);
+                do Screen.drawPixel(x1, currY);
                 let currY = currY + 1;
             }
             let currY = y1;
-            let currX = currX + 1;
+            let x1 = x1 + 1;
         }
         return;
     }
 
     /** Draws a filled circle of radius r<=181 around (x,y), using the current color. */
     function void drawCircle(int x, int y, int r) {
+        var int dx, dy, rSquared;
+        if ((x < 0) | (x > nCols) | (y < 0) | (y > nRows)) {
+            do Sys.error(12);
+        }
+        if ((r < 1) | (r > 181)) {
+            do Sys.error(13);
+        }
+
+        let dy = -r;
+        let rSquared = r * r;
+        while (dy < r) {
+            let dx = Math.sqrt(rSquared - (dy*dy));
+            do Screen.drawLine(x-dx, y+dy, x+dx, y+dy);
+            let dy = dy + 1;
+        }
+
         return;
     }
 }
