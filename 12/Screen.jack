@@ -85,10 +85,17 @@ class Screen {
 
     /** Draws the (x,y) pixel, using the current color. */
     function void drawPixel(int x, int y) {
-        var int wordAddress, bitN, val;
         if ((x < 0) | (x > nCols) | (y < 0) | (y > nRows)){
             do Sys.error(7);
         }
+        do Screen._drawPixel(x, y);
+        return;
+    }
+
+    /** drawPixel private helper.
+        Avoids coordinate validation. */
+    function void _drawPixel(int x, int y) {
+        var int wordAddress, bitN, val;
 
         let wordAddress = memMapStart + (x / 16) + (y * 32);
         let val = Memory.peek(wordAddress);
@@ -107,15 +114,20 @@ class Screen {
 
         return;
     }
-
     /** Draws a line from pixel (x1,y1) to pixel (x2,y2), using the current color. */
     function void drawLine(int x1, int y1, int x2, int y2) {
-        var int a, b, dx, dy, diff, temp;
-
         if ((x1 < 0) | (x1 > nCols) | (y1 < 0) | (y1 > nRows) |
             (x2 < 0) | (x2 > nCols) | (y2 < 0) | (y2 > nRows)) {
             do Sys.error(8);
         }
+        do Screen._drawLine(x1, y1, x2, y2);
+        return;
+    }
+
+    /** drawLine private helper.
+        Avoids coordinate validation. */
+    function void _drawLine(int x1, int y1, int x2, int y2) {
+        var int a, b, dx, dy, diff, temp;
 
         if (x1 = x2) {
             // vertical line
@@ -124,7 +136,7 @@ class Screen {
                 let y1 = y2;
                 let y2 = temp;
             }
-            while (y1 < y2) {
+            while (y1 < (y2+1)) {
                 do Screen.drawPixel(x1, y1);
                 let y1 = y1 + 1;
             }
@@ -138,7 +150,7 @@ class Screen {
                 let x1 = x2;
                 let x2 = temp;
             }
-            while (x1 < x2) {
+            while (x1 < (x2+1)) {
                 do Screen.drawPixel(x1, y1);
                 let x1 = x1 + 1;
             }
@@ -209,13 +221,9 @@ class Screen {
         }
 
         let currY = y1;
-        while (x1 < x2) {
-            while (currY < y2) {
-                do Screen.drawPixel(x1, currY);
-                let currY = currY + 1;
-            }
-            let currY = y1;
-            let x1 = x1 + 1;
+        while (currY < (y2 + 1)) {
+            do Screen._drawLine(x1, currY, x2, currY);
+            let currY = currY + 1;
         }
         return;
     }

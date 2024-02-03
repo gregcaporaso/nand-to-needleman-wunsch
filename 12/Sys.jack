@@ -45,11 +45,7 @@ class Sys {
         let i = 0;
         let j = 0;
         while (i < duration) {
-            while (j < 32767) {
-                do Math.divide(42, 42);
-                do Math.divide(42, 42);
-                do Math.divide(42, 42);
-                do Math.divide(42, 42);
+            while (j < 2500) {
                 do Math.divide(42, 42);
                 let j = j + 1;
             }
